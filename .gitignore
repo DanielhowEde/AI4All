@@ -15,14 +15,28 @@ coverage/
 .nyc_output/
 
 # IDE
-./npm
-./claude-flow/
-.claude/
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# Claude Code / claude-flow tooling
+.claude/
+.claude.json
+.claude.json.backup.*
+.claude-flow/
+.cf-backup/
+
+# Swarm / hive-mind state
+.swarm/
+.hive-mind/
+
+# npm cache
+.npm/
+
+# Shell history
+.bash_history
 
 # OS
 .DS_Store
@@ -38,3 +52,6 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+
+# Rust build artifacts
+worker/target/

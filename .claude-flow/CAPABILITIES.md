@@ -1,5 +1,5 @@
 # Claude Flow V3 - Complete Capabilities Reference
-> Generated: 2026-01-28T19:16:52.753Z
+> Generated: 2026-01-29T19:40:17.639Z
 > Full documentation: https://github.com/ruvnet/claude-flow
 
 ## 📋 Table of Contents

@@ -7,6 +7,7 @@ module.exports = {
   extensionsToTreatAsEsm: ['.ts'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    '^@openforge-sh/liboqs$': '<rootDir>/__mocks__/@openforge-sh/liboqs.ts',
   },
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
