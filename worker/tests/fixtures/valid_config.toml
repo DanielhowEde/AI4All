@@ -1,0 +1,31 @@
+# Test fixture: Valid complete configuration
+
+[worker]
+id = "fixture-worker"
+name = "Test Fixture Worker"
+tags = ["test", "fixture"]
+
+[coordinator]
+url = "wss://coordinator.test.local"
+reconnect_interval_ms = 5000
+max_reconnect_attempts = 0
+connect_timeout_ms = 30000
+heartbeat_interval_ms = 30000
+
+[resources]
+max_memory_mb = 8192
+max_gpu_memory_mb = 0
+max_gpu_percent = 75
+max_threads = 0
+enable_gpu = true
+
+[logging]
+level = "info"
+max_file_size_mb = 100
+max_files = 5
+json_format = false
+
+[storage]
+data_dir = "/tmp/ai4all-test/data"
+model_dir = "/tmp/ai4all-test/models"
+temp_dir = "/tmp/ai4all-test/temp"

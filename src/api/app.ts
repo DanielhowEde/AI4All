@@ -4,6 +4,7 @@ import { createNodesRouter } from './routes/nodes';
 import { createAdminRouter } from './routes/admin';
 import { createWorkRouter } from './routes/work';
 import { createRewardsRouter } from './routes/rewards';
+import { createPairingRouter } from './routes/pairing';
 import { ErrorCodes } from './types';
 
 /**
@@ -25,6 +26,7 @@ export function createApp(state: ApiState): Express {
   app.use('/admin', createAdminRouter(state));
   app.use('/work', createWorkRouter(state));
   app.use('/rewards', createRewardsRouter(state));
+  app.use('/pairing', createPairingRouter(state));
 
   // Global error handler
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

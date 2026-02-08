@@ -377,7 +377,7 @@ describe('Block Assignment System', () => {
     const config = DEFAULT_BLOCK_ASSIGNMENT_CONFIG;
     const now = new Date('2024-01-31T00:00:00Z');
 
-    it('should distribute 2,200 blocks in 440 batches', () => {
+    it('should distribute 22,000 blocks in 4,400 batches', () => {
       const contributors = [
         createContributor(
           'alice',
@@ -395,22 +395,22 @@ describe('Block Assignment System', () => {
 
       const assignments = distributeDailyBlocks(contributors, config, now);
 
-      expect(assignments).toHaveLength(440); // 2,200 / 5 = 440 batches
+      expect(assignments).toHaveLength(4400); // 22,000 / 5 = 4,400 batches
 
       // Check first batch
       expect(assignments[0].batchNumber).toBe(1);
       expect(assignments[0].blockIds).toHaveLength(5);
 
       // Check last batch
-      expect(assignments[439].batchNumber).toBe(440);
-      expect(assignments[439].blockIds).toHaveLength(5);
+      expect(assignments[4399].batchNumber).toBe(4400);
+      expect(assignments[4399].blockIds).toHaveLength(5);
 
       // Total blocks assigned
       const totalBlocks = assignments.reduce(
         (sum, a) => sum + a.blockIds.length,
         0
       );
-      expect(totalBlocks).toBe(2200);
+      expect(totalBlocks).toBe(22000);
     });
 
     it('should distribute blocks fairly based on weights', () => {
@@ -492,7 +492,7 @@ describe('Block Assignment System', () => {
 
       const assignments = distributeDailyBlocks(contributors, config, now);
 
-      expect(assignments).toHaveLength(440);
+      expect(assignments).toHaveLength(4400);
       // All assignments should go to alice
       expect(assignments.every(a => a.contributorId === 'alice')).toBe(true);
     });
@@ -778,7 +778,7 @@ describe('Block Assignment System', () => {
       ];
 
       const day1Assignments = distributeDailyBlocks(contributors, config, now);
-      expect(day1Assignments).toHaveLength(440); // 2,200 blocks / 5 = 440 batches
+      expect(day1Assignments).toHaveLength(4400); // 22,000 blocks / 5 = 4,400 batches
 
       // Day 2: Alice completes some blocks, including canary failures
       const aliceDay2 = createContributor(

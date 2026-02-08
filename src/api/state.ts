@@ -2,7 +2,7 @@ import * as crypto from 'crypto';
 import { NetworkState, BlockSubmission, createEmptyNetworkState } from '../services/serviceTypes';
 import { BlockAssignment } from '../types';
 import { IEventStore, IStateStore, IAssignmentStore, ISubmissionStore } from '../persistence/interfaces';
-import { DayPhase, SubmissionResultItem } from './types';
+import { DayPhase, SubmissionResultItem, PairingSession, LinkedDevice } from './types';
 
 /**
  * API state container for the HTTP server
@@ -35,6 +35,12 @@ export interface ApiState {
 
   // Minimal auth: accountId → nodeKey
   nodeKeys: Map<string, string>;
+
+  // Device pairing
+  pairings: Map<string, PairingSession>;          // pairingId → session
+  pairingCodeIndex: Map<string, string>;           // pairingCode → pairingId
+  devices: Map<string, LinkedDevice>;              // deviceId → device
+  accountDevices: Map<string, string[]>;           // accountId → deviceId[]
 }
 
 /**
@@ -58,6 +64,10 @@ export function createApiState(stores: {
     processedSubmissions: new Map(),
     pendingSubmissions: [],
     nodeKeys: new Map(),
+    pairings: new Map(),
+    pairingCodeIndex: new Map(),
+    devices: new Map(),
+    accountDevices: new Map(),
   };
 }
 

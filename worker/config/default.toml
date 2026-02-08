@@ -1,0 +1,73 @@
+# AI4All Worker Configuration
+# https://github.com/ai4all/worker
+#
+# This is the default configuration file.
+# Copy to ~/.ai4all/worker.toml and customize as needed.
+
+[worker]
+# Unique worker identifier (auto-generated if not set)
+# id = "worker-abc123"
+
+# Human-readable worker name
+# name = "My Worker"
+
+# Tags for filtering work assignments
+tags = []
+
+[coordinator]
+# Coordinator WebSocket URL
+url = "wss://coordinator.ai4all.network"
+
+# Reconnection interval in milliseconds
+reconnect_interval_ms = 5000
+
+# Maximum reconnection attempts (0 = infinite)
+max_reconnect_attempts = 0
+
+# Connection timeout in milliseconds
+connect_timeout_ms = 30000
+
+# Heartbeat interval in milliseconds
+heartbeat_interval_ms = 30000
+
+[resources]
+# Maximum memory usage in MB
+max_memory_mb = 8192
+
+# Maximum GPU memory usage in MB (0 = no limit)
+max_gpu_memory_mb = 0
+
+# Maximum GPU utilization percentage (1-100)
+max_gpu_percent = 75
+
+# Maximum CPU threads to use (0 = auto-detect)
+max_threads = 0
+
+# Enable GPU acceleration
+enable_gpu = true
+
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+
+# Log file path (comment out to disable file logging)
+# file = "~/.ai4all/worker/logs/worker.log"
+
+# Maximum log file size in MB before rotation
+max_file_size_mb = 100
+
+# Number of rotated log files to keep
+max_files = 5
+
+# Enable JSON formatted logging
+json_format = false
+
+[storage]
+# Base data directory
+data_dir = "~/.ai4all/worker"
+
+# Model cache directory
+model_dir = "~/.ai4all/worker/models"
+
+# Temporary files directory
+temp_dir = "~/.ai4all/worker/temp"

@@ -19,6 +19,8 @@ export type DomainEventType =
   | 'CANARY_PASSED'
   | 'CANARY_FAILED'
   | 'DAY_FINALIZED'
-  | 'REWARDS_COMMITTED';
+  | 'REWARDS_COMMITTED'
+  | 'DEVICE_PAIRED'
+  | 'DEVICE_UNPAIRED';
 
 export const GENESIS_HASH = 'GENESIS';

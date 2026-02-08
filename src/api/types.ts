@@ -160,6 +160,103 @@ export interface ErrorResponse {
 }
 
 // ============================================================================
+// Device Pairing
+// ============================================================================
+
+export type PairingStatus = 'PENDING' | 'APPROVED' | 'COMPLETED' | 'EXPIRED';
+
+export interface DeviceCapabilities {
+  gpuModel?: string;
+  cpuCores?: number;
+  ramGb?: number;
+  os?: string;
+}
+
+export interface PairingSession {
+  pairingId: string;
+  pairingCode: string;         // K7F9-M2Q4 format (no I/O/0/1)
+  verificationCode: string;    // 4-digit visual confirm
+  status: PairingStatus;
+  devicePublicKey: string;     // hex (ML-DSA-65, 3904 chars = 1952 bytes)
+  deviceName: string;
+  capabilities: DeviceCapabilities;
+  createdAt: Date;
+  expiresAt: Date;             // createdAt + 5 min
+  approvedBy?: string;         // accountId of approving wallet
+  challenge?: string;          // 32 random bytes hex, set on approve
+}
+
+export interface LinkedDevice {
+  deviceId: string;
+  accountId: string;
+  devicePublicKey: string;     // hex
+  deviceName: string;
+  capabilities: DeviceCapabilities;
+  linkedAt: string;            // ISO timestamp
+}
+
+// Pairing: Start (Worker → Server)
+export interface PairingStartRequest {
+  devicePublicKey: string;
+  deviceName: string;
+  capabilities?: DeviceCapabilities;
+}
+
+export interface PairingStartResponse {
+  success: boolean;
+  pairingId: string;
+  pairingCode: string;
+  verificationCode: string;
+  expiresAt: string;           // ISO timestamp
+}
+
+// Pairing: Get Details (Phone → Server)
+export interface PairingDetailsResponse {
+  success: boolean;
+  pairingId: string;
+  status: PairingStatus;
+  deviceName: string;
+  capabilities: DeviceCapabilities;
+  verificationCode: string;
+  expiresAt: string;
+}
+
+// Pairing: Approve (Phone → Server)
+export interface PairingApproveRequest {
+  pairingId: string;
+  accountId: string;
+  walletPublicKey: string;     // hex — server verifies deriveAddress(pk) === accountId
+  signature: string;           // hex — sign("AI4A:PAIR:APPROVE:v1" + pairingId + timestamp + nonce)
+  timestamp: string;           // ISO timestamp
+  nonce: string;
+}
+
+export interface PairingApproveResponse {
+  success: boolean;
+  status: PairingStatus;
+}
+
+// Pairing: Status (Worker polls)
+export interface PairingStatusResponse {
+  success: boolean;
+  status: PairingStatus;
+  challenge?: string;          // hex, present when APPROVED
+  accountId?: string;          // present when APPROVED
+}
+
+// Pairing: Complete (Worker → Server)
+export interface PairingCompleteRequest {
+  pairingId: string;
+  signature: string;           // hex — device signs challenge
+}
+
+export interface PairingCompleteResponse {
+  success: boolean;
+  deviceId: string;
+  accountId: string;
+}
+
+// ============================================================================
 // Error Codes
 // ============================================================================
 
@@ -176,6 +273,14 @@ export const ErrorCodes = {
   DAY_MISMATCH: 'DAY_MISMATCH',
   NO_DISTRIBUTION_FOUND: 'NO_DISTRIBUTION_FOUND',
   NOT_ASSIGNED: 'NOT_ASSIGNED',
+  PAIRING_NOT_FOUND: 'PAIRING_NOT_FOUND',
+  PAIRING_EXPIRED: 'PAIRING_EXPIRED',
+  PAIRING_ALREADY_USED: 'PAIRING_ALREADY_USED',
+  PAIRING_INVALID_STATE: 'PAIRING_INVALID_STATE',
+  PAIRING_SIGNATURE_INVALID: 'PAIRING_SIGNATURE_INVALID',
+  PAIRING_RATE_LIMITED: 'PAIRING_RATE_LIMITED',
+  DEVICE_NOT_FOUND: 'DEVICE_NOT_FOUND',
+  DEVICE_SIGNATURE_INVALID: 'DEVICE_SIGNATURE_INVALID',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 

@@ -110,7 +110,7 @@ export interface BlockAssignment {
  * Block assignment configuration
  */
 export interface BlockAssignmentConfig {
-  dailyBlockQuota: number; // Total blocks to distribute per day (default: 2,200)
+  dailyBlockQuota: number; // Total blocks to distribute per day (default: 22,000)
   batchSize: number; // Blocks per batch (default: 5)
   performanceLookbackDays: number; // Days to look back for performance (default: 30)
   newContributorMinWeight: number; // Minimum weight for new contributors (default: 0.1)
@@ -120,7 +120,7 @@ export interface BlockAssignmentConfig {
  * Default block assignment configuration
  */
 export const DEFAULT_BLOCK_ASSIGNMENT_CONFIG: BlockAssignmentConfig = {
-  dailyBlockQuota: 2_200,
+  dailyBlockQuota: 22_000,
   batchSize: 5,
   performanceLookbackDays: 30,
   newContributorMinWeight: 0.1,

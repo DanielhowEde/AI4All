@@ -1,0 +1,141 @@
+[package]
+name = "ai4all-worker"
+version = "0.1.0"
+edition = "2021"
+authors = ["AI4All Team"]
+description = "Distributed AI compute worker for AI4All network"
+license = "MIT"
+repository = "https://github.com/ai4all/worker"
+keywords = ["ai", "distributed", "compute", "worker"]
+categories = ["command-line-utilities"]
+build = "build.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4.4", features = ["derive", "env", "string"] }
+
+# Configuration
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+config = "0.14"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5.0"
+shellexpand = "3.1"
+parking_lot = "0.12"
+num_cpus = "1.16"
+sha2 = "0.10"
+hex = "0.4"
+
+# WebSocket / Coordinator Protocol
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+url = "2.5"
+backoff = { version = "0.4", features = ["tokio"] }
+
+# System info
+hostname = "0.3"
+
+# GPU Detection (Vulkan)
+ash = { version = "0.37", optional = true }
+
+# Plugin system
+libloading = "0.8"
+
+# HTTP client for plugin downloads and pairing
+reqwest = { version = "0.11", features = ["rustls-tls", "stream", "json"] }
+
+# QR code generation (for device pairing)
+qrcode = "0.13"
+
+# Post-quantum crypto (ML-DSA-65 / Dilithium3)
+pqcrypto-dilithium = "0.5"
+pqcrypto-traits = "0.3"
+
+# LLM Inference (llama.cpp bindings)
+# Note: llama-cpp-2 requires cmake and a C++ compiler
+llama-cpp-2 = { version = "0.1", optional = true }
+
+[build-dependencies]
+chrono = "0.4"
+
+[dev-dependencies]
+tempfile = "3.9"
+assert_cmd = "2.0"
+predicates = "3.0"
+tokio-test = "0.4"
+
+# ─────────────────────────────────────────────────────────────────
+# Build Profiles
+# ─────────────────────────────────────────────────────────────────
+
+# Development: Fast compile, debug symbols
+[profile.dev]
+opt-level = 0
+debug = true
+
+# Release: Optimized for distribution
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Release with debug info: For profiling
+[profile.release-debug]
+inherits = "release"
+debug = true
+strip = false
+
+# Minimal size release: For embedded/constrained systems
+[profile.release-small]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Benchmark profile: Optimized but with debug info
+[profile.bench]
+opt-level = 3
+debug = true
+lto = "thin"
+
+[[bin]]
+name = "ai4all-worker"
+path = "src/main.rs"
+
+# ─────────────────────────────────────────────────────────────────
+# Feature Flags
+# ─────────────────────────────────────────────────────────────────
+
+[features]
+default = []
+# Enable llama.cpp CPU backend
+llama = ["llama-cpp-2"]
+# GPU detection and plugin system
+gpu = ["ash"]
+vulkan = ["gpu"]
+# GPU backends (require llama.cpp + GPU)
+cuda = ["llama", "gpu"]
+rocm = ["llama", "gpu"]
+# Optional features
+telemetry = []

@@ -1,0 +1,26 @@
+# Test fixture: Invalid configuration (multiple errors)
+
+[worker]
+# Valid worker section
+
+[coordinator]
+# Invalid: not a websocket URL
+url = "http://not-websocket.example.com"
+# Invalid: negative value
+reconnect_interval_ms = -1000
+
+[resources]
+# Invalid: over 100%
+max_gpu_percent = 200
+# Invalid: negative
+max_memory_mb = -1024
+
+[logging]
+# Invalid: unknown level
+level = "super_verbose"
+
+[storage]
+# These are valid paths but the config should still fail due to above errors
+data_dir = "/tmp/test"
+model_dir = "/tmp/test/models"
+temp_dir = "/tmp/test/temp"

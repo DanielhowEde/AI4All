@@ -17,9 +17,19 @@ import {
 import { DEFAULT_REWARD_CONFIG } from '../../types';
 import { BlockSubmission } from '../../services/serviceTypes';
 import { processSubmission } from '../../services/submissionService';
+import { verify } from '../../crypto/signing';
+
+/** Convert hex string to Uint8Array */
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
 
 /**
- * Validate nodeKey for a given accountId
+ * Validate nodeKey for a given accountId (legacy auth path)
  */
 function validateNodeKey(
   state: ApiState,
@@ -52,6 +62,66 @@ function validateNodeKey(
 }
 
 /**
+ * Validate device signature auth.
+ * Body must include deviceId + deviceSignature (hex).
+ * The signature is over "AI4A:WORK:v1" + accountId + dayId.
+ * Returns the resolved accountId or null (response already sent).
+ */
+async function validateDeviceAuth(
+  state: ApiState,
+  deviceId: string,
+  deviceSignature: string,
+  accountId: string,
+  res: Response
+): Promise<boolean> {
+  const device = state.devices.get(deviceId);
+  if (!device) {
+    res.status(404).json({
+      success: false,
+      error: 'Device not found',
+      code: ErrorCodes.DEVICE_NOT_FOUND,
+    });
+    return false;
+  }
+
+  // Device must be linked to the claimed accountId
+  if (device.accountId !== accountId) {
+    res.status(403).json({
+      success: false,
+      error: 'Device not linked to this account',
+      code: ErrorCodes.DEVICE_SIGNATURE_INVALID,
+    });
+    return false;
+  }
+
+  // Verify device signature
+  const payload = `AI4A:WORK:v1${accountId}${state.currentDayId ?? ''}`;
+  const payloadBytes = new TextEncoder().encode(payload);
+  try {
+    const sigBytes = hexToBytes(deviceSignature);
+    const pkBytes = hexToBytes(device.devicePublicKey);
+    const valid = await verify(payloadBytes, sigBytes, pkBytes);
+    if (!valid) {
+      res.status(401).json({
+        success: false,
+        error: 'Device signature verification failed',
+        code: ErrorCodes.DEVICE_SIGNATURE_INVALID,
+      });
+      return false;
+    }
+  } catch {
+    res.status(401).json({
+      success: false,
+      error: 'Device signature verification error',
+      code: ErrorCodes.DEVICE_SIGNATURE_INVALID,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * Create router for work endpoints
  */
 export function createWorkRouter(state: ApiState): Router {
@@ -61,8 +131,8 @@ export function createWorkRouter(state: ApiState): Router {
    * POST /work/request
    * Request work assignments for current day
    */
-  router.post('/request', (req: Request, res: Response) => {
-    const body = req.body as WorkRequestRequest;
+  router.post('/request', async (req: Request, res: Response) => {
+    const body = req.body as WorkRequestRequest & { deviceId?: string; deviceSignature?: string };
 
     // Validate required fields
     if (!body.accountId || typeof body.accountId !== 'string') {
@@ -74,19 +144,20 @@ export function createWorkRouter(state: ApiState): Router {
       return;
     }
 
-    if (!body.nodeKey || typeof body.nodeKey !== 'string') {
-      res.status(401).json({
-        success: false,
-        error: 'Missing nodeKey',
-        code: ErrorCodes.INVALID_NODE_KEY,
-      });
-      return;
-    }
-
     const accountId = body.accountId.trim();
 
-    // Validate nodeKey
-    if (!validateNodeKey(state, accountId, body.nodeKey, res)) {
+    // Dual auth: device signature takes priority, falls back to nodeKey
+    if (body.deviceId && body.deviceSignature) {
+      const ok = await validateDeviceAuth(state, body.deviceId, body.deviceSignature, accountId, res);
+      if (!ok) return;
+    } else if (body.nodeKey && typeof body.nodeKey === 'string') {
+      if (!validateNodeKey(state, accountId, body.nodeKey, res)) return;
+    } else {
+      res.status(401).json({
+        success: false,
+        error: 'Missing authentication: provide nodeKey or deviceId+deviceSignature',
+        code: ErrorCodes.INVALID_NODE_KEY,
+      });
       return;
     }
 
@@ -129,8 +200,8 @@ export function createWorkRouter(state: ApiState): Router {
    * POST /work/submit
    * Submit completed work
    */
-  router.post('/submit', (req: Request, res: Response) => {
-    const body = req.body as WorkSubmitRequest;
+  router.post('/submit', async (req: Request, res: Response) => {
+    const body = req.body as WorkSubmitRequest & { deviceId?: string; deviceSignature?: string };
 
     // Validate required fields
     if (!body.accountId || typeof body.accountId !== 'string') {
@@ -138,15 +209,6 @@ export function createWorkRouter(state: ApiState): Router {
         success: false,
         error: 'Missing accountId',
         code: ErrorCodes.MISSING_ACCOUNT_ID,
-      });
-      return;
-    }
-
-    if (!body.nodeKey || typeof body.nodeKey !== 'string') {
-      res.status(401).json({
-        success: false,
-        error: 'Missing nodeKey',
-        code: ErrorCodes.INVALID_NODE_KEY,
       });
       return;
     }
@@ -162,8 +224,18 @@ export function createWorkRouter(state: ApiState): Router {
 
     const accountId = body.accountId.trim();
 
-    // Validate nodeKey
-    if (!validateNodeKey(state, accountId, body.nodeKey, res)) {
+    // Dual auth: device signature takes priority, falls back to nodeKey
+    if (body.deviceId && body.deviceSignature) {
+      const ok = await validateDeviceAuth(state, body.deviceId, body.deviceSignature, accountId, res);
+      if (!ok) return;
+    } else if (body.nodeKey && typeof body.nodeKey === 'string') {
+      if (!validateNodeKey(state, accountId, body.nodeKey, res)) return;
+    } else {
+      res.status(401).json({
+        success: false,
+        error: 'Missing authentication: provide nodeKey or deviceId+deviceSignature',
+        code: ErrorCodes.INVALID_NODE_KEY,
+      });
       return;
     }
 

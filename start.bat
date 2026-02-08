@@ -1,0 +1,1 @@
+docker run -it --rm -e OPENROUTER_API_KEY="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" -e CLAUDE_FLOW_PROVIDER="openrouter" claude-flow

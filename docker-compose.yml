@@ -1,0 +1,17 @@
+services:
+  queen:
+    image: claude-flow
+    container_name: cf-queen
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    environment:
+      HOME: /workspace
+      CLAUDE_FLOW_HOME: /workspace/.claude-flow
+      CLAUDE_FLOW_NON_INTERACTIVE: "true"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+    command:   ["sh","-lc","claude-flow daemon start; claude-flow swarm init --v3-mode; claude-flow swarm start -o \"Build AIForAll API system\" -s development --yes; tail -f /workspace/.claude-flow/daemon.log"]
+    restart: unless-stopped
+    tty: true
+    stdin_open: true

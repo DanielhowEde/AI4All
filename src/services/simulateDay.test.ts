@@ -156,7 +156,7 @@ describe('simulateDay', () => {
     expect(r2.rewardDistribution.rewards.length).toBeGreaterThan(0);
   });
 
-  it('should handle canary failure blocking contributor next day', () => {
+  it('should handle canary failure blocking contributor next day', async () => {
     let state = createEmptyNetworkState();
     state = addActiveContributor(state, 'alice', 10);
     state = addActiveContributor(state, 'bob', 10);
@@ -178,7 +178,7 @@ describe('simulateDay', () => {
     const canarySet = new Set(['canary-block-1']);
 
     // Process directly via service to set up the failure
-    const { processBatchSubmissions } = require('./submissionService');
+    const { processBatchSubmissions } = await import('./submissionService');
     const { updatedContributors } = processBatchSubmissions(
       state.contributors,
       [failedSubmission],
