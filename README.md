@@ -1,166 +1,208 @@
-# AI4All Reward Distribution System
+# AI4All
 
-Token reward distribution system implementing fair, merit-based rewards with anti-gaming safeguards.
+Decentralised AI compute network. Workers contribute GPU/CPU resources, earn token rewards, and are cryptographically linked to wallets via post-quantum signatures.
+
+## Architecture
+
+```
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│  iOS Wallet  │◄────►│   Backend    │◄────►│    Worker    │
+│  (Swift/UI)  │      │  (Express)   │      │   (Rust)     │
+│  ML-DSA-65   │      │  REST API    │      │  ML-DSA-65   │
+│  QR scanner  │      │  In-memory   │      │  GPU/CPU     │
+└──────────────┘      └──────────────┘      └──────────────┘
+        h:/repos/           src/                worker/
+        AI4AllWallet
+```
+
+**Three codebases, one protocol:**
+
+| Component | Language | Location | Purpose |
+|-----------|----------|----------|---------|
+| Backend | TypeScript + Express | `src/` | API server, reward distribution, pairing, persistence |
+| Worker | Rust | `worker/` | Compute execution, GPU detection, device pairing CLI |
+| iOS Wallet | Swift/SwiftUI | `h:/repos/AI4AllWallet/` | Key management, QR pairing, balance viewer |
 
 ## Quick Start
 
-### Install Dependencies
+### Backend
+
 ```bash
 npm install
-```
-
-### Run Tests
-```bash
-npm test
-```
-
-### Run Tests in Watch Mode
-```bash
-npm run test:watch
-```
-
-### Run Tests with Coverage
-```bash
-npm run test:coverage
-```
-
-### Build
-```bash
+npm test          # 552 tests
 npm run build
+npm start         # Express server on :3000
+```
+
+### Worker
+
+```bash
+cd worker
+cargo build --release
+./target/release/ai4all-worker run --api-url http://localhost:3000
+```
+
+### Device Pairing
+
+```bash
+# Worker terminal:
+ai4all-worker pair --api-url http://localhost:3000 --name "My Desktop"
+# Displays QR code + short code (K7F9-M2Q4 format)
+
+# iOS Wallet:
+# Settings → Link Worker → scan QR or enter short code → verify 4-digit code → Approve
 ```
 
 ## Project Structure
 
 ```
 src/
-├── types.ts                        # Core type definitions
-├── computePoints.ts                # Compute points calculation logic
-├── computePoints.test.ts           # Unit tests for compute points
-├── canaryGenerator.ts              # Canary block honeypot system
-├── canaryGenerator.test.ts         # Unit tests for canary generator
-├── dynamicCanary.test.ts           # Tests for rehabilitation system
-├── rewardDistribution.ts           # Daily reward distribution logic (floating-point)
-├── rewardDistribution.test.ts      # Unit tests for reward distribution
-├── rewardDistributionFixed.ts      # Fixed-point reward distribution (mainnet)
-├── rewardDistributionFixed.test.ts # Fixed-point integration tests
-├── fixedPoint.ts                   # Fixed-point arithmetic utilities
-├── fixedPoint.test.ts              # Fixed-point core tests
-├── blockAssignment.ts              # Block assignment weighted lottery
-├── blockAssignment.test.ts         # Unit tests for block assignment
-└── (more modules coming in future milestones)
+├── api/
+│   ├── app.ts                  # Express app setup, route mounting
+│   ├── server.ts               # HTTP server entry point
+│   ├── state.ts                # In-memory state (Maps for accounts, nodes, pairings, devices)
+│   ├── types.ts                # API types, error codes, pairing/device interfaces
+│   ├── middleware/
+│   │   └── adminAuth.ts        # Admin authentication middleware
+│   ├── routes/
+│   │   ├── nodes.ts            # Node registration & management
+│   │   ├── work.ts             # Work request/submit (dual auth: nodeKey OR device sig)
+│   │   ├── rewards.ts          # Reward queries, Merkle proofs
+│   │   ├── admin.ts            # Admin endpoints (day management)
+│   │   └── pairing.ts          # 6-endpoint device pairing protocol
+│   └── tests/                  # API integration tests (supertest)
+├── crypto/
+│   ├── keys.ts                 # ML-DSA-65 keypair generation (via liboqs WASM)
+│   ├── signing.ts              # Sign/verify with ML-DSA-65
+│   ├── address.ts              # Address derivation: "ai4a" + hex(SHA256(pk)[0:20])
+│   └── tests/
+├── services/
+│   ├── nodeService.ts          # Node lifecycle management
+│   ├── workAssignmentService.ts# Block→node assignment logic
+│   ├── submissionService.ts    # Work result submission handling
+│   ├── dailyFinalizeService.ts # End-of-day reward calculation
+│   ├── auditService.ts         # Audit trail queries
+│   └── simulateDay.ts          # Full day orchestration (test harness)
+├── persistence/
+│   ├── eventBuilder.ts         # Domain event construction
+│   ├── eventTypes.ts           # Event type definitions (incl. DEVICE_PAIRED)
+│   ├── inMemoryStores.ts       # In-memory event/state stores
+│   ├── persistDay.ts           # Day-level state persistence
+│   ├── replayRunner.ts         # Event replay for state reconstruction
+│   ├── stateProjection.ts      # State projection from events
+│   └── canonicalSerialize.ts   # Deterministic JSON serialisation
+├── merkle/
+│   ├── merkleTree.ts           # SHA-256 Merkle tree implementation
+│   └── rewardCommitment.ts     # Reward commitment proofs
+├── types.ts                    # Core domain types (Contributor, Block, Reward)
+├── computePoints.ts            # Compute point calculation
+├── canaryGenerator.ts          # Honeypot anti-gaming system
+├── blockAssignment.ts          # Weighted lottery block distribution
+├── rewardDistribution.ts       # Reward distribution (floating-point)
+├── rewardDistributionFixed.ts  # Reward distribution (fixed-point, mainnet)
+└── fixedPoint.ts               # Bigint fixed-point arithmetic (1 token = 1M microunits)
+
+worker/
+├── src/
+│   ├── main.rs                 # Entry point, command dispatch
+│   ├── cli.rs                  # CLI args (run, pair, benchmark subcommands)
+│   ├── config.rs               # TOML configuration
+│   ├── pairing.rs              # Device pairing: keygen, QR display, poll, sign
+│   ├── coordinator/            # Server communication
+│   ├── executor/               # Task execution engine
+│   ├── backend/                # Compute backends (CPU, Vulkan, mock)
+│   ├── gpu/                    # GPU detection
+│   ├── system/                 # Health checks, benchmarking
+│   └── plugins/                # Plugin system
+└── Cargo.toml
 ```
 
-## Development Status
+## Core Systems
 
-### ✅ Milestone 1: Core Data Structures & Compute Points
-- [x] Type definitions
-- [x] Block types and point calculation
-- [x] Active contributor validation
-- [x] Canary block anti-gaming system
-  - [x] Honeypot blocks with known answers
-  - [x] Automatic reputation penalties
-  - [x] **24-hour block after each canary failure**
-  - [x] **Dynamic canary rates (rehabilitation system)**
-  - [x] **No permanent bans - always a path to redemption**
-  - [x] Deterministic canary distribution
-  - [x] Failed canary detection
-- [x] Unit tests (100% coverage, 80+ tests)
+### Cryptography (ML-DSA-65 / FIPS 204)
 
-### ✅ Milestone 2A: Base Participation Pool (Fairness Floor)
-- [x] Base pool calculation (30% of daily emissions)
-- [x] Equal distribution among active contributors
-- [x] Integration with canary system (blocked contributors excluded)
-- [x] ContributorReward and RewardDistribution types
-- [x] Unit tests (100% coverage, 20+ tests)
-- [x] Integration tests with rehabilitation system
+Post-quantum digital signatures used for wallet identity and device authentication.
 
-### ✅ Milestone 2B: Block Assignment System (Upstream Work Distribution)
-- [x] BlockAssignment and BlockAssignmentConfig types
-- [x] 30-day performance tracking (lookback window)
-- [x] Hybrid weight calculation (sqrt(performance) × reputation)
-- [x] Weighted lottery algorithm (pure random selection)
-- [x] Daily block distribution (2,200 blocks/day in batches of 5)
-- [x] Minimum weight for new contributors (0.1 default)
-- [x] Integration with reputation/canary system
-- [x] Unit tests (27+ tests covering all edge cases)
-- [x] Integration tests (6 scenarios with canary system)
-- [x] Comprehensive documentation
+- **Key sizes**: publicKey 1,952 bytes, secretKey 4,032 bytes, signature 3,309 bytes
+- **Implementation**: `@openforge-sh/liboqs` (WASM) on backend/iOS, `pqcrypto-dilithium` on worker
+- **Address format**: `ai4a` + 40 hex chars = 44 characters total
 
-### ✅ Milestone 3: Performance Pool (Merit-Based Rewards)
-- [x] Performance weight calculation with sqrt diminishing returns
-- [x] Performance pool distribution (80% of emissions)
-- [x] Integration with base pool (complete daily rewards)
-- [x] calculateDailyRewards() and calculateRewardDistribution()
-- [x] **30-day rolling window (prevents "rich get richer forever")**
-- [x] **Fixed-point arithmetic (deterministic, auditable, mainnet-ready)**
-- [x] Fairness for small contributors (diminishing returns)
-- [x] Canary blocks excluded from reward calculations
-- [x] Unit tests (49+ tests for performance pool)
-- [x] Fixed-point tests (64 tests: 42 core + 22 integration)
-- [x] Integration tests with reputation/canary systems
-- [x] Comprehensive documentation with honest Sybil assessment
-- [x] Edge case handling (0 points, single contributor, 100+ contributors)
+### Device Pairing Protocol
 
-### 🔄 Upcoming Milestones
-- [ ] Luck Pool (optional weighted lottery, 0-10% of emissions)
-- [ ] End-to-end integration tests (full workflow)
-- [ ] Performance optimizations (caching, indexing)
-- [ ] Settlement and payout system
+4-step protocol linking workers to wallets:
 
-## Testing Philosophy
+1. **Start** — Worker generates ML-DSA-65 keypair, sends public key to server
+2. **Scan** — Phone scans QR (or enters short code), sees device info + 4-digit verification code
+3. **Approve** — Phone signs approval with wallet's ML-DSA-65 key, server verifies
+4. **Complete** — Worker signs challenge with device key, link is established
 
-- All tests are deterministic (no network, no real time)
-- External systems are mocked
-- Coverage includes: happy path, edge cases, failure cases
+Safety: 5-min expiry, one-time use, verification code prevents scan-from-afar, rate limited to 10 pending sessions.
 
-## Documentation
+After pairing, workers authenticate with device signatures instead of plain nodeKeys.
 
-**[📋 IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)** - Complete implementation status and mainnet readiness
+### Reward Distribution
 
-### Detailed system documentation:
+- **Base pool** (30%): Equal share among active contributors
+- **Performance pool** (80%): Merit-based with sqrt diminishing returns
+- **30-day rolling window**: Prevents incumbency advantage
+- **Fixed-point arithmetic**: Bigint microunits (1 token = 1,000,000 microunits) for deterministic calculation
+- **Canary system**: Honeypot blocks detect gaming, dynamic rehabilitation (no permanent bans)
+- **Block assignment**: Weighted lottery, 2,200 blocks/day in batches of 5
 
-- **[CANARY_SYSTEM.md](CANARY_SYSTEM.md)** - Honeypot blocks for anti-gaming detection
-- **[CANARY_EXCLUSION_FROM_REWARDS.md](CANARY_EXCLUSION_FROM_REWARDS.md)** - Why canaries don't count toward rewards
-- **[REHABILITATION_SYSTEM.md](REHABILITATION_SYSTEM.md)** - Dynamic canary rates and contributor recovery
-- **[BLOCK_ASSIGNMENT_SYSTEM.md](BLOCK_ASSIGNMENT_SYSTEM.md)** - Weighted lottery for upstream work distribution
-- **[PERFORMANCE_POOL.md](PERFORMANCE_POOL.md)** - Merit-based rewards with sqrt diminishing returns
-- **[30DAY_ROLLING_WINDOW.md](30DAY_ROLLING_WINDOW.md)** - 30-day rolling window implementation (prevents "rich get richer forever")
-- **[FIXED_POINT_ARITHMETIC.md](FIXED_POINT_ARITHMETIC.md)** - ✅ **Deterministic fixed-point arithmetic for mainnet**
-- **[CRITICAL_CORRECTIONS.md](CRITICAL_CORRECTIONS.md)** - Important design corrections and improvements
-- **[MILESTONE1_24H_BLOCK_ENHANCEMENT.md](MILESTONE1_24H_BLOCK_ENHANCEMENT.md)** - 24-hour cooldown after canary failures
+### Event Sourcing & Persistence
 
-## Test Results
+All state changes recorded as domain events. Full state is reconstructable via replay. Merkle tree commitments provide cryptographic proof of reward distributions.
+
+## Testing
 
 ```bash
-npm test
+npm test           # All 552 tests
+npm run test:watch # Watch mode
+npm run test:coverage
 ```
 
-**Current Status**: ✅ **245 tests passing** (all test suites)
+### Test Suites (28 total, 552 tests)
 
-### Test Breakdown
-- **Canary System**: 30 tests
-- **Compute Points**: 45 tests
-- **Block Assignment**: 33 tests
-- **Reward Distribution**: 49 tests (floating-point)
-- **Fixed-Point Arithmetic**: 42 tests (core utilities)
-- **Fixed-Point Rewards**: 22 tests (integration)
-- **Dynamic Canary**: 24 tests
+| Suite | Tests | Covers |
+|-------|-------|--------|
+| Canary System | 30 | Honeypot detection, reputation penalties |
+| Compute Points | 45 | Point calculation, validation |
+| Block Assignment | 33 | Weighted lottery, batch distribution |
+| Reward Distribution | 49 | Floating-point rewards |
+| Fixed-Point Arithmetic | 42 | Bigint math utilities |
+| Fixed-Point Rewards | 22 | Mainnet reward integration |
+| Dynamic Canary | 24 | Rehabilitation system |
+| Merkle Tree | 8 | Tree construction, proofs |
+| Reward Commitment | 5 | Commitment verification |
+| Crypto | 6 | ML-DSA-65 keygen, sign, verify, address |
+| API (nodes, work, admin, rewards) | 82 | REST endpoints, auth, validation |
+| Device Pairing | 17 | Full 4-step flow, expiry, bad sigs, rate limits |
+| Services | ~100 | Node, work assignment, submission, finalize, audit |
+| Persistence | ~50 | Events, replay, serialization, projection |
+| Simulate Day | 9 | End-to-end day orchestration |
 
-**Total Coverage**: All critical paths tested, including edge cases and error conditions
+## API Endpoints
 
-## Production Readiness
+### Nodes
+- `POST /nodes/register` — Register contributor node
+- `GET /nodes/:nodeId` — Get node status
 
-### ✅ MAINNET-READY
+### Work
+- `POST /work/request` — Request work assignment (nodeKey or device auth)
+- `POST /work/submit` — Submit completed work (nodeKey or device auth)
 
-All critical components complete:
-- ✅ **Deterministic calculations**: Fixed-point arithmetic with bigint
-- ✅ **Fair time window**: 30-day rolling window prevents incumbency
-- ✅ **Anti-gaming**: Canary system with dynamic rehabilitation
-- ✅ **Auditable**: Exact sum verification down to microunits
-- ✅ **Comprehensive testing**: 245 tests, all passing
-- ✅ **Honest documentation**: Clear about limitations and tradeoffs
+### Rewards
+- `GET /rewards/proof` — Merkle proof for account reward
+- `GET /rewards/root` — Merkle root for finalized day
 
-**Optional Enhancements** (future milestones):
-- 🟡 Identity cost layer (additional Sybil resistance)
-- 🟡 Luck pool (weighted lottery rewards)
-- 🟡 Settlement and payout system
+### Admin
+- `POST /admin/day/start` — Start new day
+- `POST /admin/day/finalize` — Finalize current day
+
+### Device Pairing
+- `POST /pairing/start` — Worker initiates pairing session
+- `GET /pairing/code/:code` — Resolve short code to pairing details
+- `GET /pairing/:pairingId` — Get pairing session details
+- `POST /pairing/approve` — Phone approves with wallet signature
+- `GET /pairing/:pairingId/status` — Poll for approval status
+- `POST /pairing/complete` — Worker completes with device signature

@@ -5,6 +5,7 @@ import { createAdminRouter } from './routes/admin';
 import { createWorkRouter } from './routes/work';
 import { createRewardsRouter } from './routes/rewards';
 import { createPairingRouter } from './routes/pairing';
+import { createAccountsRouter } from './routes/accounts';
 import { ErrorCodes } from './types';
 
 /**
@@ -18,7 +19,14 @@ export function createApp(state: ApiState): Express {
 
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
-    res.json({ status: 'ok', dayPhase: state.dayPhase });
+    res.json({
+      status: 'ok',
+      dayPhase: state.dayPhase,
+      currentDayId: state.currentDayId,
+      contributors: state.networkState.contributors.size,
+      dayNumber: state.networkState.dayNumber,
+      pendingSubmissions: state.pendingSubmissions.length,
+    });
   });
 
   // Mount routes
@@ -27,6 +35,7 @@ export function createApp(state: ApiState): Express {
   app.use('/work', createWorkRouter(state));
   app.use('/rewards', createRewardsRouter(state));
   app.use('/pairing', createPairingRouter(state));
+  app.use('/accounts', createAccountsRouter(state));
 
   // Global error handler
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

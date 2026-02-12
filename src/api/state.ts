@@ -3,6 +3,8 @@ import { NetworkState, BlockSubmission, createEmptyNetworkState } from '../servi
 import { BlockAssignment } from '../types';
 import { IEventStore, IStateStore, IAssignmentStore, ISubmissionStore } from '../persistence/interfaces';
 import { DayPhase, SubmissionResultItem, PairingSession, LinkedDevice } from './types';
+import type { SqliteKvStore } from '../persistence/sqlite/kvStore';
+import type { SqliteBalanceStore } from '../persistence/sqlite/SqliteBalanceStore';
 
 /**
  * API state container for the HTTP server
@@ -41,6 +43,12 @@ export interface ApiState {
   pairingCodeIndex: Map<string, string>;           // pairingCode → pairingId
   devices: Map<string, LinkedDevice>;              // deviceId → device
   accountDevices: Map<string, string[]>;           // accountId → deviceId[]
+
+  // Optional SQLite kv store for persistence
+  kvStore?: SqliteKvStore;
+
+  // Optional balance store (SQLite only)
+  balanceStore?: SqliteBalanceStore;
 }
 
 /**

@@ -37,6 +37,7 @@ export interface IAssignmentStore {
 
 export interface ISubmissionStore {
   putSubmissions(dayId: string, submissions: BlockSubmission[]): Promise<void>;
+  appendSubmission?(dayId: string, submission: BlockSubmission): Promise<void>;
   listByDay(dayId: string): Promise<BlockSubmission[]>;
   listByNode(dayId: string, nodeId: string): Promise<BlockSubmission[]>;
 }

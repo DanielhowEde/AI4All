@@ -48,3 +48,7 @@ export {
   ReplayResult,
   ReplayReport,
 } from './replayRunner';
+
+// SQLite stores
+export { createSqliteStores } from './sqlite';
+export type { SqliteStores } from './sqlite';

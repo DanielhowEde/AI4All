@@ -126,6 +126,12 @@ export class InMemorySubmissionStore implements ISubmissionStore {
     this.submissions.set(dayId, submissions);
   }
 
+  async appendSubmission(dayId: string, submission: BlockSubmission): Promise<void> {
+    const existing = this.submissions.get(dayId) ?? [];
+    existing.push(submission);
+    this.submissions.set(dayId, existing);
+  }
+
   async listByDay(dayId: string): Promise<BlockSubmission[]> {
     return this.submissions.get(dayId) ?? [];
   }

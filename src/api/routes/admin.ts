@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { requireAdminKey } from '../middleware/adminAuth';
-import { ApiState, computeRosterHash, computeDaySeed, formatDayId, resetDayState } from '../state';
+import { ApiState } from '../state';
 import {
   DayStartRequest,
   DayStartResponse,
@@ -8,10 +8,7 @@ import {
   FinalizeResponse,
   ErrorCodes,
 } from '../types';
-import { DEFAULT_REWARD_CONFIG, DEFAULT_BLOCK_ASSIGNMENT_CONFIG } from '../../types';
-import { DEFAULT_CANARY_CONFIG, seededRandom } from '../../canaryGenerator';
-import { assignDailyWork } from '../../services/workAssignmentService';
-import { persistDay } from '../../persistence/persistDay';
+import { startNewDay, finalizeCurrent } from '../../services/dayLifecycleService';
 
 /**
  * Create router for admin endpoints
@@ -39,48 +36,15 @@ export function createAdminRouter(state: ApiState): Router {
       return;
     }
 
-    // Determine dayId (default to today UTC)
-    const dayId = body.dayId || formatDayId(new Date());
-
-    // Lock roster: get sorted list of all registered contributors
-    const accountIds = Array.from(state.networkState.contributors.keys()).sort();
-    state.currentRosterAccountIds = accountIds;
-
-    // Compute deterministic seed from dayId + roster
-    const rosterHash = computeRosterHash(accountIds);
-    const seed = computeDaySeed(dayId, rosterHash);
-    state.currentDaySeed = seed;
-
-    // Get all registered contributors for assignment
-    // Per plan: "Active = registered contributors (no liveness check for now)"
-    const allContributors = Array.from(state.networkState.contributors.values());
-
-    // Generate assignments using seeded random
-    const random = seededRandom(seed);
-    const { assignments, canaryBlockIds } = assignDailyWork(
-      allContributors,
-      DEFAULT_BLOCK_ASSIGNMENT_CONFIG,
-      DEFAULT_CANARY_CONFIG,
-      new Date(),
-      random
-    );
-
-    // Store in state
-    state.currentDayAssignments = assignments;
-    state.currentCanaryBlockIds = canaryBlockIds;
-    state.currentDayId = dayId;
-    state.dayPhase = 'ACTIVE';
-
-    // Count total blocks
-    const totalBlocks = assignments.reduce((sum, a) => sum + a.blockIds.length, 0);
+    const result = startNewDay(state, body.dayId);
 
     const response: DayStartResponse = {
       success: true,
-      dayId,
-      activeContributors: allContributors.length,
-      totalBlocks,
-      seed,
-      rosterHash,
+      dayId: result.dayId,
+      activeContributors: result.activeContributors,
+      totalBlocks: result.totalBlocks,
+      seed: result.seed,
+      rosterHash: result.rosterHash,
     };
 
     res.status(200).json(response);
@@ -117,48 +81,14 @@ export function createAdminRouter(state: ApiState): Router {
       return;
     }
 
-    // Set to FINALIZING to reject new submissions
-    state.dayPhase = 'FINALIZING';
-
     try {
-      const dayId = state.currentDayId!;
-      // Use the dayId to create a timestamp at noon UTC for that day
-      // This ensures events are stored with the correct dayId
-      const currentTime = new Date(`${dayId}T12:00:00Z`);
-
-      // Build day config with the same seed for determinism
-      const config = {
-        rewardConfig: DEFAULT_REWARD_CONFIG,
-        blockAssignmentConfig: DEFAULT_BLOCK_ASSIGNMENT_CONFIG,
-        canaryConfig: DEFAULT_CANARY_CONFIG,
-        currentTime,
-        random: state.currentDaySeed !== null ? seededRandom(state.currentDaySeed) : undefined,
-      };
-
-      // Persist day (runs simulation + persists to stores)
-      const { newState, result } = await persistDay(
-        state.networkState,
-        state.pendingSubmissions,
-        config,
-        state.stores
-      );
-
-      // Update network state
-      state.networkState = newState;
-
-      // Reset day state
-      resetDayState(state);
+      const result = await finalizeCurrent(state);
 
       const response: FinalizeResponse = {
         success: true,
-        dayId,
+        dayId: result.dayId,
         verification: result.verification,
-        summary: {
-          activeContributors: result.rewardDistribution.activeContributorCount,
-          totalEmissions: result.rewardDistribution.totalEmissions,
-          basePoolTotal: result.rewardDistribution.basePoolTotal,
-          performancePoolTotal: result.rewardDistribution.performancePoolTotal,
-        },
+        summary: result.summary,
       };
 
       res.status(200).json(response);
