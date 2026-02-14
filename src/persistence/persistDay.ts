@@ -45,14 +45,12 @@ export async function persistDay(
   const timestamp = config.currentTime.toISOString();
   const events = buildDayEvents(dayId, result, submissions, prevEventHash, timestamp);
 
-  // 4. Persist events
-  await stores.event.append(events);
-
-  // 5. Persist assignments
-  await stores.assignment.putAssignments(dayId, result.assignments);
-
-  // 6. Persist submissions
-  await stores.submission.putSubmissions(dayId, submissions);
+  // 4. Persist events, assignments, and submissions in parallel (independent stores)
+  await Promise.all([
+    stores.event.append(events),
+    stores.assignment.putAssignments(dayId, result.assignments),
+    stores.submission.putSubmissions(dayId, submissions),
+  ]);
 
   // 7. Compute hashes
   const stateHash = computeStateHash(newState);

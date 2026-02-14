@@ -14,6 +14,10 @@ import { DEFAULT_CANARY_CONFIG, seededRandom } from '../canaryGenerator';
 import { assignDailyWork } from './workAssignmentService';
 import { persistDay } from '../persistence/persistDay';
 import { toMicroUnits } from '../fixedPoint';
+import { computeRewardRoot, rewardsToEntries } from '../merkle';
+import { computeStateHash } from '../persistence/eventBuilder';
+import { buildTransactionBlock } from '../chain/chainBuilder';
+import type { TransactionEvent } from '../chain/types';
 
 export interface DayStartResult {
   dayId: string;
@@ -127,6 +131,75 @@ export async function finalizeCurrent(state: ApiState): Promise<FinalizeResult> 
     if (credits.length > 0) {
       state.balanceStore.creditRewards(dayId, credits);
     }
+  }
+
+  // Build transaction chain block
+  if (state.chainStore) {
+    const rewardEntries = rewardsToEntries(result.rewardDistribution.rewards);
+    const rewardMerkleRoot = rewardEntries.length > 0
+      ? computeRewardRoot(dayId, rewardEntries)
+      : '0'.repeat(64);
+    const stateHash = computeStateHash(newState);
+
+    // Get previous transaction block for chain linkage
+    const prevTxBlock = state.chainStore.getLatestTransactionBlock();
+
+    // Build transaction events from submission results
+    const txEvents: TransactionEvent[] = [];
+    const ts = currentTime.toISOString();
+
+    // Record each submission as a transaction event
+    for (const sub of state.pendingSubmissions) {
+      txEvents.push({
+        eventType: 'SUBMISSION_RECEIVED',
+        actorId: sub.contributorId,
+        timestamp: ts,
+        payload: { blockId: sub.blockId, blockType: sub.blockType },
+      });
+    }
+
+    // Record the finalization
+    txEvents.push({
+      eventType: 'DAY_FINALIZED',
+      timestamp: ts,
+      payload: {
+        activeContributors: result.rewardDistribution.activeContributorCount,
+        totalEmissions: result.rewardDistribution.totalEmissions,
+      },
+    });
+
+    // Record the reward commitment
+    txEvents.push({
+      eventType: 'REWARDS_COMMITTED',
+      timestamp: ts,
+      payload: {
+        rewardMerkleRoot,
+        rewardCount: result.rewardDistribution.rewards.length,
+      },
+    });
+
+    // Get wallet chain ref for cross-chain linkage
+    const walletChainRef = undefined; // Will resolve from latest wallet block if needed
+
+    const txBlock = buildTransactionBlock({
+      dayId,
+      events: txEvents,
+      rewardMerkleRoot,
+      stateHash,
+      walletChainRef,
+      contributorCount: result.rewardDistribution.activeContributorCount,
+      totalEmissionsMicro: toMicroUnits(result.rewardDistribution.totalEmissions),
+      prevBlockHash: prevTxBlock?.blockHash,
+      blockNumber: prevTxBlock ? prevTxBlock.blockNumber + 1 : 0,
+    });
+
+    state.chainStore.appendTransactionBlock(txBlock);
+
+    // 30-day rolling prune
+    const thirtyDaysAgo = new Date(currentTime);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const cutoffDayId = thirtyDaysAgo.toISOString().split('T')[0];
+    state.chainStore.pruneTransactionsBefore(cutoffDayId);
   }
 
   // Reset day state

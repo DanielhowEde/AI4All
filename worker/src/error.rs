@@ -72,6 +72,11 @@ pub enum ErrorCode {
     PluginIncompatible = 824,
     VulkanError = 830,
 
+    // Persona errors (85x)
+    PersonaNotFound = 850,
+    PersonaInvalid = 851,
+    PersonaNotAuthorized = 852,
+
     // Internal errors (9xx)
     InternalError = 900,
     NotImplemented = 901,
@@ -313,6 +318,22 @@ pub enum Error {
     VulkanError { message: String, error_code: Option<i32> },
 
     // ─────────────────────────────────────────────────────────────
+    // Persona Errors
+    // ─────────────────────────────────────────────────────────────
+
+    /// Persona config not found
+    #[error("Persona not found: {name}")]
+    PersonaNotFound { name: String },
+
+    /// Persona config invalid
+    #[error("Persona config invalid for '{name}': {reason}")]
+    PersonaInvalid { name: String, reason: String },
+
+    /// Persona not authorized for this action
+    #[error("Persona not authorized: {message}")]
+    PersonaNotAuthorized { message: String },
+
+    // ─────────────────────────────────────────────────────────────
     // Internal Errors
     // ─────────────────────────────────────────────────────────────
 
@@ -381,6 +402,10 @@ impl Error {
             Error::PluginChecksumMismatch { .. } => ErrorCode::PluginChecksumMismatch,
             Error::PluginIncompatible { .. } => ErrorCode::PluginIncompatible,
             Error::VulkanError { .. } => ErrorCode::VulkanError,
+
+            Error::PersonaNotFound { .. } => ErrorCode::PersonaNotFound,
+            Error::PersonaInvalid { .. } => ErrorCode::PersonaInvalid,
+            Error::PersonaNotAuthorized { .. } => ErrorCode::PersonaNotAuthorized,
 
             Error::NotSupported(_) => ErrorCode::NotSupported,
             Error::Internal(_) => ErrorCode::InternalError,
@@ -495,6 +520,16 @@ impl Error {
             ),
             Error::VulkanError { .. } => Some(
                 "Update your GPU drivers and ensure Vulkan is properly installed."
+            ),
+
+            Error::PersonaNotFound { .. } => Some(
+                "Run 'ai4all-worker persona list' to see available personas, then 'ai4all-worker persona download <name>' to install."
+            ),
+            Error::PersonaInvalid { .. } => Some(
+                "The persona config may be corrupted. Run 'ai4all-worker persona download <name>' to re-download."
+            ),
+            Error::PersonaNotAuthorized { .. } => Some(
+                "This action requires a different persona role. Check the governance hierarchy."
             ),
 
             _ => None,

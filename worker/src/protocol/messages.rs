@@ -95,6 +95,10 @@ pub enum Message {
 
     /// Error response
     Error(ErrorMessage),
+
+    // ─── Persona / Governance ────────────────────────────────────
+    /// Persona registration announcement (worker → coordinator)
+    PersonaRegister(PersonaRegisterMessage),
 }
 
 impl Message {
@@ -112,6 +116,7 @@ impl Message {
             Message::ConfigUpdate(_) => "CONFIG_UPDATE",
             Message::Shutdown(_) => "SHUTDOWN",
             Message::Error(_) => "ERROR",
+            Message::PersonaRegister(_) => "PERSONA_REGISTER",
         }
     }
 
@@ -124,6 +129,7 @@ impl Message {
                 | Message::TaskResult(_)
                 | Message::StatusUpdate(_)
                 | Message::Shutdown(_)
+                | Message::PersonaRegister(_)
         )
     }
 
@@ -525,6 +531,40 @@ pub struct ErrorMessage {
     /// Whether the error is fatal (connection should be closed)
     #[serde(default)]
     pub fatal: bool,
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Persona / Governance Messages
+// ─────────────────────────────────────────────────────────────────
+
+/// Persona registration message sent when a worker identifies its governance role
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaRegisterMessage {
+    /// Worker ID
+    pub worker_id: String,
+
+    /// Persona type slug (master-ba, project-ba, coder, tester)
+    pub persona_type: String,
+
+    /// Persona config version
+    pub persona_version: String,
+
+    /// Governance level
+    pub governance_level: String,
+
+    /// Capabilities summary
+    pub capabilities: PersonaCapabilitiesSummary,
+}
+
+/// Summary of persona capabilities for coordinator awareness
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PersonaCapabilitiesSummary {
+    pub can_create_projects: bool,
+    pub can_create_milestones: bool,
+    pub can_approve_milestones: bool,
+    pub can_assign_work: bool,
+    pub can_submit_work: bool,
+    pub can_verify_work: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────

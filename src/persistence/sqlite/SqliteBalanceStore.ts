@@ -28,7 +28,8 @@ export class SqliteBalanceStore {
   private stmtInsertHistory: Database.Statement;
   private stmtHistory: Database.Statement;
   private stmtLeaderboard: Database.Statement;
-  private stmtTotalSupply: Database.Statement;
+  private stmtAllBalances: Database.Statement;
+  private stmtCheckDay: Database.Statement;
 
   constructor(db: Database.Database) {
     this.stmtGet = db.prepare(
@@ -56,13 +57,23 @@ export class SqliteBalanceStore {
        FROM balance_history WHERE account_id = ? ORDER BY id DESC LIMIT ?`
     );
 
+    // BigInt-safe leaderboard: sort by string length DESC then value DESC
+    // (all values are non-negative, so longer string = larger number)
     this.stmtLeaderboard = db.prepare(
       `SELECT account_id, balance_micro, total_earned_micro, last_reward_day, updated_at
-       FROM balances ORDER BY CAST(total_earned_micro AS INTEGER) DESC LIMIT ?`
+       FROM balances
+       ORDER BY LENGTH(total_earned_micro) DESC, total_earned_micro DESC
+       LIMIT ?`
     );
 
-    this.stmtTotalSupply = db.prepare(
-      `SELECT COALESCE(SUM(CAST(balance_micro AS INTEGER)), 0) as total FROM balances`
+    // Fetch all balances for BigInt-safe summation in JS
+    this.stmtAllBalances = db.prepare(
+      `SELECT balance_micro FROM balances`
+    );
+
+    // Dedup check: has this day already been credited?
+    this.stmtCheckDay = db.prepare(
+      `SELECT COUNT(*) as count FROM balance_history WHERE day_id = ? LIMIT 1`
     );
 
     // Credit rewards transactionally
@@ -119,13 +130,20 @@ export class SqliteBalanceStore {
   }
 
   /**
-   * Credit rewards for a finalized day. Atomic — all or nothing.
+   * Credit rewards for a finalized day. Atomic and idempotent — rejects duplicate dayId.
    * @param dayId The day being finalized
    * @param rewards Array of { accountId, amountMicro } to credit
+   * @returns true if credited, false if dayId already credited (idempotent)
    */
-  creditRewards(dayId: string, rewards: Array<{ accountId: string; amountMicro: bigint }>): void {
+  creditRewards(dayId: string, rewards: Array<{ accountId: string; amountMicro: bigint }>): boolean {
+    // Idempotency guard: prevent double-credit on retry
+    const check = this.stmtCheckDay.get(dayId) as { count: number };
+    if (check.count > 0) {
+      return false;
+    }
     const timestamp = new Date().toISOString();
     this._creditRewardsTxn(dayId, rewards, timestamp);
+    return true;
   }
 
   /** Get reward history for an account */
@@ -168,9 +186,9 @@ export class SqliteBalanceStore {
     }));
   }
 
-  /** Total circulating supply in microunits */
+  /** Total circulating supply in microunits (BigInt-safe summation) */
   getTotalSupply(): bigint {
-    const row = this.stmtTotalSupply.get() as { total: number };
-    return BigInt(row.total);
+    const rows = this.stmtAllBalances.all() as Array<{ balance_micro: string }>;
+    return rows.reduce((sum, r) => sum + BigInt(r.balance_micro), 0n);
   }
 }

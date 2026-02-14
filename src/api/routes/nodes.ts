@@ -9,6 +9,8 @@ import {
   ErrorCodes,
 } from '../types';
 import { registerNode } from '../../services/nodeService';
+import { buildWalletBlock } from '../../chain/chainBuilder';
+import type { WalletEvent } from '../../chain/types';
 
 /**
  * Create router for node endpoints
@@ -58,6 +60,28 @@ export function createNodesRouter(state: ApiState): Router {
     // Persist to SQLite if available
     if (state.kvStore) {
       state.kvStore.saveNodeKeys(state.nodeKeys);
+    }
+
+    // Create wallet chain genesis block for this account
+    if (state.chainStore) {
+      const walletEvent: WalletEvent = {
+        eventType: 'WALLET_CREATED',
+        timestamp: new Date().toISOString(),
+        payload: { accountId },
+      };
+
+      // Build unsigned wallet block (publicKey supplied if available)
+      const publicKey = (body as { publicKey?: string }).publicKey || '';
+      const walletBlock = buildWalletBlock({
+        walletAddress: accountId,
+        publicKey,
+        events: [walletEvent],
+      });
+
+      state.chainStore.appendWalletBlock({
+        ...walletBlock,
+        signature: '', // Unsigned for nodeKey-auth registrations
+      });
     }
 
     const response: RegisterNodeResponse = {

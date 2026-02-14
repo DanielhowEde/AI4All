@@ -33,6 +33,10 @@ pub enum Commands {
         /// Path to configuration file
         #[arg(short, long, env = "AI4ALL_CONFIG")]
         config: Option<String>,
+
+        /// Override active persona for this run (master-ba, project-ba, coder, tester)
+        #[arg(long, env = "AI4ALL_PERSONA")]
+        persona: Option<String>,
     },
 
     /// Run performance benchmarks
@@ -68,6 +72,40 @@ pub enum Commands {
     Config {
         #[command(subcommand)]
         subcommand: ConfigSubcommand,
+    },
+
+    /// Persona management (governance hierarchy roles)
+    Persona {
+        #[command(subcommand)]
+        subcommand: PersonaSubcommand,
+    },
+}
+
+/// Persona subcommands
+#[derive(Subcommand, Debug, Clone)]
+pub enum PersonaSubcommand {
+    /// List all available and installed personas
+    List,
+
+    /// Download a persona config to local storage
+    Download {
+        /// Persona type: master-ba, project-ba, coder, tester
+        persona: String,
+    },
+
+    /// Show the currently active persona
+    Show,
+
+    /// Activate a persona for this worker
+    Activate {
+        /// Persona type: master-ba, project-ba, coder, tester
+        persona: String,
+    },
+
+    /// Validate a downloaded persona config
+    Validate {
+        /// Persona type: master-ba, project-ba, coder, tester
+        persona: String,
     },
 }
 
@@ -123,8 +161,9 @@ mod tests {
     fn test_run_command() {
         let cli = Cli::parse_from(["ai4all-worker", "run"]);
         match cli.command {
-            Commands::Run { config } => {
+            Commands::Run { config, persona } => {
                 assert!(config.is_none());
+                assert!(persona.is_none());
             }
             _ => panic!("Expected Run command"),
         }
@@ -134,10 +173,41 @@ mod tests {
     fn test_run_with_config() {
         let cli = Cli::parse_from(["ai4all-worker", "run", "--config", "/path/to/config.toml"]);
         match cli.command {
-            Commands::Run { config } => {
+            Commands::Run { config, .. } => {
                 assert_eq!(config, Some("/path/to/config.toml".to_string()));
             }
             _ => panic!("Expected Run command"),
+        }
+    }
+
+    #[test]
+    fn test_run_with_persona() {
+        let cli = Cli::parse_from(["ai4all-worker", "run", "--persona", "coder"]);
+        match cli.command {
+            Commands::Run { persona, .. } => {
+                assert_eq!(persona, Some("coder".to_string()));
+            }
+            _ => panic!("Expected Run command"),
+        }
+    }
+
+    #[test]
+    fn test_persona_list() {
+        let cli = Cli::parse_from(["ai4all-worker", "persona", "list"]);
+        match cli.command {
+            Commands::Persona { subcommand: PersonaSubcommand::List } => {}
+            _ => panic!("Expected Persona List command"),
+        }
+    }
+
+    #[test]
+    fn test_persona_activate() {
+        let cli = Cli::parse_from(["ai4all-worker", "persona", "activate", "coder"]);
+        match cli.command {
+            Commands::Persona { subcommand: PersonaSubcommand::Activate { persona } } => {
+                assert_eq!(persona, "coder");
+            }
+            _ => panic!("Expected Persona Activate command"),
         }
     }
 

@@ -14,6 +14,7 @@ mod executor;
 mod gpu;
 mod logging;
 mod pairing;
+mod persona;
 #[cfg(feature = "gpu")]
 mod plugins;
 mod protocol;
@@ -55,6 +56,14 @@ fn main() -> Result<()> {
             logging::init_simple(tracing::Level::WARN)?;
             return handle_config_command(subcommand.clone());
         }
+        Commands::Persona { ref subcommand } => {
+            logging::init_simple(if cli.verbose > 0 {
+                tracing::Level::DEBUG
+            } else {
+                tracing::Level::INFO
+            })?;
+            return handle_persona_command(subcommand.clone());
+        }
         Commands::Pair { ref api_url, ref name, force } => {
             logging::init_simple(if cli.verbose > 0 {
                 tracing::Level::DEBUG
@@ -75,9 +84,9 @@ fn main() -> Result<()> {
     }
 
     // Load configuration for run/benchmark commands
-    let config_path = match &cli.command {
-        Commands::Run { config } => config.clone(),
-        _ => None,
+    let (config_path, persona_override) = match &cli.command {
+        Commands::Run { config, persona } => (config.clone(), persona.clone()),
+        _ => (None, None),
     };
 
     // Load config (or use defaults)
@@ -106,12 +115,12 @@ fn main() -> Result<()> {
     // Execute the appropriate command
     match cli.command {
         Commands::Run { .. } => {
-            run_worker(config)?;
+            run_worker(config, persona_override)?;
         }
         Commands::Benchmark { iterations, output } => {
             run_benchmark(iterations, output)?;
         }
-        Commands::Version | Commands::Config { .. } | Commands::Pair { .. } => {
+        Commands::Version | Commands::Config { .. } | Commands::Pair { .. } | Commands::Persona { .. } => {
             // Already handled above
             unreachable!();
         }
@@ -130,7 +139,7 @@ fn init_logging_from_config(
 }
 
 /// Run the worker in normal operation mode
-fn run_worker(config: WorkerConfig) -> Result<()> {
+fn run_worker(config: WorkerConfig, persona_override: Option<String>) -> Result<()> {
     info!(
         worker_id = %config.worker.id.as_deref().unwrap_or("(auto)"),
         coordinator_url = %config.coordinator.url,
@@ -168,6 +177,30 @@ fn run_worker(config: WorkerConfig) -> Result<()> {
         .thread_name("ai4all-worker")
         .build()
         .map_err(|e| Error::Internal(format!("Failed to create async runtime: {}", e)))?;
+
+    // Load active persona
+    let mut persona_manager = persona::PersonaManager::new(config.persona_dir());
+    let persona_slug = persona_override
+        .or_else(|| config.persona.active.clone());
+
+    if let Some(ref slug) = persona_slug {
+        let pt: persona::PersonaType = slug.parse().map_err(|e: String| {
+            Error::PersonaInvalid { name: slug.clone(), reason: e }
+        })?;
+        match persona_manager.activate(pt) {
+            Ok(cfg) => {
+                info!(
+                    persona = %cfg.persona_type,
+                    version = %cfg.version,
+                    level = %cfg.persona_type.governance_level(),
+                    "Persona loaded"
+                );
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to load persona, continuing without persona");
+            }
+        }
+    }
 
     runtime.block_on(async_worker_main(config))
 }
@@ -550,6 +583,92 @@ fn run_benchmark(iterations: u32, output: Option<String>) -> Result<()> {
 
     if let Some(ref path) = output {
         println!("  Results saved to: {}", path);
+    }
+
+    Ok(())
+}
+
+/// Handle persona subcommands
+fn handle_persona_command(subcommand: cli::PersonaSubcommand) -> Result<()> {
+    use cli::PersonaSubcommand;
+    use persona::{PersonaManager, PersonaType};
+
+    let mut manager = PersonaManager::with_defaults();
+
+    match subcommand {
+        PersonaSubcommand::List => {
+            let registry = persona::PersonaRegistry::new();
+            let available = registry.list_available();
+            let installed = manager.list_installed().unwrap_or_default();
+
+            println!("Available Personas:");
+            println!("{:<15} {:<50} {:<10} {}", "NAME", "DESCRIPTION", "INSTALLED", "ACTIVE");
+            println!("{}", "-".repeat(85));
+
+            for listing in &available {
+                let inst = installed.iter().find(|i| i.persona_type == listing.persona_type);
+                let installed_str = if inst.is_some() { "yes" } else { "no" };
+                let active_str = if inst.map_or(false, |i| i.is_active) { "  *" } else { "" };
+                println!(
+                    "{:<15} {:<50} {:<10} {}",
+                    listing.persona_type.slug(),
+                    listing.description,
+                    installed_str,
+                    active_str,
+                );
+            }
+        }
+        PersonaSubcommand::Download { persona } => {
+            let pt: PersonaType = persona.parse().map_err(|e: String| {
+                Error::PersonaInvalid { name: persona.clone(), reason: e }
+            })?;
+            let path = manager.download(pt)?;
+            println!("Downloaded {} to {}", pt.display_name(), path.display());
+        }
+        PersonaSubcommand::Show => {
+            match manager.load_active()? {
+                Some(cfg) => {
+                    println!("Active Persona: {}", cfg.persona_type.display_name());
+                    println!("  Type:        {}", cfg.persona_type.slug());
+                    println!("  Version:     {}", cfg.version);
+                    println!("  Level:       {}", cfg.persona_type.governance_level());
+                    println!("  Description: {}", cfg.description);
+                    println!();
+                    println!("Capabilities:");
+                    println!("  Create projects:    {}", cfg.capabilities.can_create_projects);
+                    println!("  Create milestones:  {}", cfg.capabilities.can_create_milestones);
+                    println!("  Approve milestones: {}", cfg.capabilities.can_approve_milestones);
+                    println!("  Assign work:        {}", cfg.capabilities.can_assign_work);
+                    println!("  Submit work:        {}", cfg.capabilities.can_submit_work);
+                    println!("  Verify work:        {}", cfg.capabilities.can_verify_work);
+                    println!();
+                    println!("Communication:");
+                    let can_msg: Vec<&str> = cfg.communication.can_message.iter().map(|p| p.slug()).collect();
+                    println!("  Can message:    [{}]", can_msg.join(", "));
+                    if let Some(ref esc) = cfg.communication.escalation_target {
+                        println!("  Escalation:     {}", esc.slug());
+                    }
+                }
+                None => {
+                    println!("No persona is currently active.");
+                    println!("Run 'ai4all-worker persona activate <name>' to set one.");
+                }
+            }
+        }
+        PersonaSubcommand::Activate { persona } => {
+            let pt: PersonaType = persona.parse().map_err(|e: String| {
+                Error::PersonaInvalid { name: persona.clone(), reason: e }
+            })?;
+            let cfg = manager.activate(pt)?;
+            println!("Activated: {} v{}", cfg.persona_type.display_name(), cfg.version);
+        }
+        PersonaSubcommand::Validate { persona } => {
+            let pt: PersonaType = persona.parse().map_err(|e: String| {
+                Error::PersonaInvalid { name: persona.clone(), reason: e }
+            })?;
+            let cfg = manager.validate(pt)?;
+            println!("Persona '{}' v{} is valid.", cfg.persona_type.slug(), cfg.version);
+        }
     }
 
     Ok(())

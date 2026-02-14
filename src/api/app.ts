@@ -6,6 +6,7 @@ import { createWorkRouter } from './routes/work';
 import { createRewardsRouter } from './routes/rewards';
 import { createPairingRouter } from './routes/pairing';
 import { createAccountsRouter } from './routes/accounts';
+import { createGovernanceRouter } from './routes/governance';
 import { ErrorCodes } from './types';
 
 /**
@@ -14,8 +15,8 @@ import { ErrorCodes } from './types';
 export function createApp(state: ApiState): Express {
   const app = express();
 
-  // Parse JSON bodies
-  app.use(express.json());
+  // Parse JSON bodies (10MB limit for large batch submissions)
+  app.use(express.json({ limit: '10mb' }));
 
   // Health check endpoint
   app.get('/health', (_req: Request, res: Response) => {
@@ -36,6 +37,7 @@ export function createApp(state: ApiState): Express {
   app.use('/rewards', createRewardsRouter(state));
   app.use('/pairing', createPairingRouter(state));
   app.use('/accounts', createAccountsRouter(state));
+  app.use('/governance', createGovernanceRouter(state));
 
   // Global error handler
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
