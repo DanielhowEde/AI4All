@@ -54,6 +54,7 @@ yarn-error.log*
 !.env.example
 *.secret
 *.credentials
+start.bat
 
 # MCP config (may contain env vars)
 .mcp.json
