@@ -96,6 +96,117 @@ CREATE TABLE IF NOT EXISTS balance_history (
 );
 CREATE INDEX IF NOT EXISTS idx_balance_history_account ON balance_history(account_id);
 CREATE INDEX IF NOT EXISTS idx_balance_history_day ON balance_history(day_id);
+
+-- wallet_chain (per-wallet identity blocks)
+CREATE TABLE IF NOT EXISTS wallet_chain (
+  block_hash       TEXT PRIMARY KEY,
+  prev_block_hash  TEXT NOT NULL,
+  block_number     INTEGER NOT NULL,
+  timestamp        TEXT NOT NULL,
+  wallet_address   TEXT NOT NULL,
+  public_key       TEXT NOT NULL,
+  events_json      TEXT NOT NULL,
+  events_merkle_root TEXT NOT NULL,
+  signature        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_chain_address ON wallet_chain(wallet_address, block_number);
+
+-- transaction_chain (global daily transaction blocks, 30-day rolling)
+CREATE TABLE IF NOT EXISTS transaction_chain (
+  block_hash           TEXT PRIMARY KEY,
+  prev_block_hash      TEXT NOT NULL,
+  block_number         INTEGER NOT NULL,
+  timestamp            TEXT NOT NULL,
+  day_id               TEXT NOT NULL UNIQUE,
+  events_json          TEXT NOT NULL,
+  reward_merkle_root   TEXT NOT NULL,
+  state_hash           TEXT NOT NULL,
+  wallet_chain_ref     TEXT NOT NULL,
+  contributor_count    INTEGER NOT NULL,
+  total_emissions_micro TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tx_chain_day ON transaction_chain(day_id);
+CREATE INDEX IF NOT EXISTS idx_tx_chain_number ON transaction_chain(block_number);
+
+-- personas (registered persona instances)
+CREATE TABLE IF NOT EXISTS personas (
+  persona_id        TEXT PRIMARY KEY,
+  persona_type      TEXT NOT NULL,
+  device_id         TEXT NOT NULL,
+  account_id        TEXT NOT NULL,
+  registered_at     TEXT NOT NULL,
+  wallet_block_hash TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_personas_device ON personas(device_id);
+CREATE INDEX IF NOT EXISTS idx_personas_account ON personas(account_id);
+
+-- programmes (programme definitions)
+CREATE TABLE IF NOT EXISTS programmes (
+  programme_id          TEXT PRIMARY KEY,
+  name                  TEXT NOT NULL,
+  description           TEXT NOT NULL,
+  master_ba_persona_id  TEXT NOT NULL,
+  created_at            TEXT NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'ACTIVE'
+);
+
+-- projects (project definitions within programmes)
+CREATE TABLE IF NOT EXISTS projects (
+  project_id              TEXT PRIMARY KEY,
+  programme_id            TEXT NOT NULL,
+  name                    TEXT NOT NULL,
+  description             TEXT NOT NULL,
+  project_ba_persona_id   TEXT NOT NULL,
+  acceptance_criteria_json TEXT NOT NULL DEFAULT '[]',
+  created_at              TEXT NOT NULL,
+  status                  TEXT NOT NULL DEFAULT 'PLANNING'
+);
+CREATE INDEX IF NOT EXISTS idx_projects_programme ON projects(programme_id);
+
+-- milestones (milestone lifecycle within projects)
+CREATE TABLE IF NOT EXISTS milestones (
+  milestone_id                TEXT PRIMARY KEY,
+  project_id                  TEXT NOT NULL,
+  name                        TEXT NOT NULL,
+  description                 TEXT NOT NULL,
+  acceptance_criteria_json    TEXT NOT NULL DEFAULT '[]',
+  assigned_coder_persona_id   TEXT,
+  assigned_tester_persona_id  TEXT,
+  state                       TEXT NOT NULL DEFAULT 'DEFINED',
+  token_reward                TEXT NOT NULL DEFAULT '0',
+  deliverable_hash            TEXT,
+  test_report_hash            TEXT,
+  created_at                  TEXT NOT NULL,
+  updated_at                  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones(project_id);
+CREATE INDEX IF NOT EXISTS idx_milestones_state ON milestones(state);
+
+-- milestone_history (audit trail of state transitions)
+CREATE TABLE IF NOT EXISTS milestone_history (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  milestone_id  TEXT NOT NULL,
+  from_state    TEXT NOT NULL,
+  to_state      TEXT NOT NULL,
+  persona_id    TEXT NOT NULL,
+  timestamp     TEXT NOT NULL,
+  reason        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_milestone_history_ms ON milestone_history(milestone_id);
+
+-- persona_messages (inter-persona messaging)
+CREATE TABLE IF NOT EXISTS persona_messages (
+  message_id        TEXT PRIMARY KEY,
+  from_persona_id   TEXT NOT NULL,
+  to_persona_id     TEXT NOT NULL,
+  subject           TEXT NOT NULL,
+  content           TEXT NOT NULL,
+  milestone_id      TEXT,
+  created_at        TEXT NOT NULL,
+  read              INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_persona_messages_to ON persona_messages(to_persona_id, read);
+CREATE INDEX IF NOT EXISTS idx_persona_messages_from ON persona_messages(from_persona_id);
 `;
 
 export function openDatabase(dbPath?: string): Database.Database {

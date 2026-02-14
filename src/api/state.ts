@@ -5,6 +5,9 @@ import { IEventStore, IStateStore, IAssignmentStore, ISubmissionStore } from '..
 import { DayPhase, SubmissionResultItem, PairingSession, LinkedDevice } from './types';
 import type { SqliteKvStore } from '../persistence/sqlite/kvStore';
 import type { SqliteBalanceStore } from '../persistence/sqlite/SqliteBalanceStore';
+import type { SqliteChainStore } from '../persistence/sqlite/SqliteChainStore';
+import type { SqliteGovernanceStore } from '../persistence/sqlite/SqliteGovernanceStore';
+import type { RegisteredPersona, Programme, Project, Milestone } from '../governance/types';
 
 /**
  * API state container for the HTTP server
@@ -49,6 +52,16 @@ export interface ApiState {
 
   // Optional balance store (SQLite only)
   balanceStore?: SqliteBalanceStore;
+
+  // Optional chain store (dual-chain, SQLite only)
+  chainStore?: SqliteChainStore;
+
+  // Governance (persona hierarchy)
+  personas: Map<string, RegisteredPersona>;
+  programmes: Map<string, Programme>;
+  projects: Map<string, Project>;
+  milestones: Map<string, Milestone>;
+  governanceStore?: SqliteGovernanceStore;
 }
 
 /**
@@ -76,6 +89,10 @@ export function createApiState(stores: {
     pairingCodeIndex: new Map(),
     devices: new Map(),
     accountDevices: new Map(),
+    personas: new Map(),
+    programmes: new Map(),
+    projects: new Map(),
+    milestones: new Map(),
   };
 }
 

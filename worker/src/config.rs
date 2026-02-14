@@ -38,6 +38,9 @@ pub struct WorkerConfig {
 
     /// Data storage paths
     pub storage: StorageSettings,
+
+    /// Persona system settings
+    pub persona: PersonaSettings,
 }
 
 /// Worker identity settings
@@ -188,6 +191,7 @@ impl Default for WorkerConfig {
             plugins: PluginSettings::default(),
             logging: LoggingSettings::default(),
             storage: StorageSettings::default(),
+            persona: PersonaSettings::default(),
         }
     }
 }
@@ -268,6 +272,31 @@ impl Default for PluginSettings {
             registry_url: "https://plugins.ai4all.network".to_string(),
             verify_checksums: true,
             download_timeout_secs: 300,
+        }
+    }
+}
+
+/// Persona system settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PersonaSettings {
+    /// Directory for persona configs
+    pub persona_dir: String,
+
+    /// Auto-download bundled persona on activation
+    pub auto_download: bool,
+
+    /// Currently active persona (None = no persona active)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active: Option<String>,
+}
+
+impl Default for PersonaSettings {
+    fn default() -> Self {
+        Self {
+            persona_dir: "~/.ai4all/worker/personas".to_string(),
+            auto_download: true,
+            active: None,
         }
     }
 }
@@ -452,6 +481,7 @@ impl WorkerConfig {
         self.storage.model_dir = expand_path(&self.storage.model_dir);
         self.storage.temp_dir = expand_path(&self.storage.temp_dir);
         self.plugins.plugin_dir = expand_path(&self.plugins.plugin_dir);
+        self.persona.persona_dir = expand_path(&self.persona.persona_dir);
 
         if let Some(ref file) = self.logging.file {
             self.logging.file = Some(expand_path(file));
@@ -503,6 +533,11 @@ impl WorkerConfig {
     /// Get the plugin directory as a PathBuf
     pub fn plugin_dir(&self) -> PathBuf {
         PathBuf::from(&self.plugins.plugin_dir)
+    }
+
+    /// Get the persona directory as a PathBuf
+    pub fn persona_dir(&self) -> PathBuf {
+        PathBuf::from(&self.persona.persona_dir)
     }
 }
 

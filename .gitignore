@@ -73,6 +73,8 @@ data/
 *.jks
 *.keystore
 identity.json
+*.identity.json
+wallets/
 
 # Rust build artifacts
 worker/target/

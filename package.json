@@ -10,7 +10,10 @@
     "test:coverage": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
     "build": "tsc",
     "lint": "eslint src --ext .ts",
-    "start:api": "ts-node src/api/server.ts"
+    "start:api": "ts-node src/api/server.ts",
+    "generate-coins": "ts-node scripts/generate-coins.ts",
+    "create-wallet": "ts-node scripts/create-wallet.ts",
+    "run-blockchain": "ts-node scripts/run-blockchain.ts"
   },
   "keywords": [
     "ai4all",

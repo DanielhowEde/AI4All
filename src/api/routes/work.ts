@@ -310,13 +310,8 @@ export function createWorkRouter(state: ApiState): Router {
         DEFAULT_REWARD_CONFIG
       );
 
-      // Update contributor in state
-      const newContributors = new Map(state.networkState.contributors);
-      newContributors.set(accountId, updatedContributor);
-      state.networkState = {
-        ...state.networkState,
-        contributors: newContributors,
-      };
+      // Update contributor in state (mutate in-place for performance)
+      state.networkState.contributors.set(accountId, updatedContributor);
 
       // Add to pending submissions for finalization
       state.pendingSubmissions.push(submission);
