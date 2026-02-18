@@ -5,7 +5,7 @@
  * Required for mainnet deployment with real money.
  *
  * Differences from floating-point version:
- * - All token amounts in microunits (1 token = 1,000,000 microunits)
+ * - All token amounts in nanounits (1 token = 1,000,000,000 nanounits)
  * - Deterministic across all platforms
  * - Exact sum preservation (no rounding errors)
  * - Uses integer square root
@@ -14,7 +14,8 @@
 import { Contributor, RewardConfig, ContributorReward, RewardDistribution } from './types';
 import { isActiveContributor, calculateRewardPoints } from './computePoints';
 import {
-  toMicroUnits,
+  NANO_UNITS,
+  toNanoUnits,
   toTokens,
   distributeProportional,
   distributeSqrtWeighted,
@@ -36,21 +37,21 @@ export function getActiveContributors(
 }
 
 /**
- * Calculate base pool amount from daily emissions (in microunits)
+ * Calculate base pool amount from daily emissions (in nanounits)
  */
 export function calculateBasePoolAmount(config: RewardConfig): bigint {
-  const dailyEmissionsMicro = toMicroUnits(config.dailyEmissions);
-  const basePercentage = BigInt(Math.floor(config.basePoolPercentage * 1_000_000));
-  return (dailyEmissionsMicro * basePercentage) / 1_000_000n;
+  const dailyEmissionsNano = toNanoUnits(config.dailyEmissions);
+  const basePercentage = BigInt(Math.floor(config.basePoolPercentage * 1_000_000_000));
+  return (dailyEmissionsNano * basePercentage) / 1_000_000_000n;
 }
 
 /**
- * Calculate performance pool amount from daily emissions (in microunits)
+ * Calculate performance pool amount from daily emissions (in nanounits)
  */
 export function calculatePerformancePoolAmount(config: RewardConfig): bigint {
-  const dailyEmissionsMicro = toMicroUnits(config.dailyEmissions);
-  const perfPercentage = BigInt(Math.floor(config.performancePoolPercentage * 1_000_000));
-  return (dailyEmissionsMicro * perfPercentage) / 1_000_000n;
+  const dailyEmissionsNano = toNanoUnits(config.dailyEmissions);
+  const perfPercentage = BigInt(Math.floor(config.performancePoolPercentage * 1_000_000_000));
+  return (dailyEmissionsNano * perfPercentage) / 1_000_000_000n;
 }
 
 /**
@@ -67,7 +68,7 @@ export function distributeBasePool(
   }
 
   // Equal weights for base pool
-  const weights = activeContributors.map(() => 1_000_000n); // 1.0 in microunits
+  const weights = activeContributors.map(() => NANO_UNITS); // 1.0 in nanounits
 
   // Distribute proportionally (will be equal since all weights are same)
   const shares = distributeProportional(weights, basePoolAmount);
@@ -102,7 +103,7 @@ export function distributePerformancePool(
       config.performanceLookbackDays,
       currentTime
     );
-    return toMicroUnits(rewardPoints);
+    return toNanoUnits(rewardPoints);
   });
 
   // Distribute using sqrt weighting
@@ -218,8 +219,8 @@ export function verifyExactDistribution(
   const expectedTotal = distribution.config.dailyEmissions;
 
   // Convert to microunits for exact comparison
-  const totalDistributedMicro = toMicroUnits(totalDistributed);
-  const expectedTotalMicro = toMicroUnits(expectedTotal);
+  const totalDistributedMicro = toNanoUnits(totalDistributed);
+  const expectedTotalMicro = toNanoUnits(expectedTotal);
 
   if (totalDistributedMicro !== expectedTotalMicro) {
     return {

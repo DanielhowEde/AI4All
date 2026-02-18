@@ -13,18 +13,18 @@ import {
   RewardEntry,
 } from '../rewardCommitment';
 
-describe('toMicrounits / fromMicrounits', () => {
-  it('should convert tokens to microunits', () => {
-    expect(toMicrounits(1)).toBe(1_000_000n);
-    expect(toMicrounits(1.5)).toBe(1_500_000n);
-    expect(toMicrounits(0.000001)).toBe(1n);
-    expect(toMicrounits(22000)).toBe(22_000_000_000n);
+describe('toMicrounits / fromMicrounits (nanounits)', () => {
+  it('should convert tokens to nanounits', () => {
+    expect(toMicrounits(1)).toBe(1_000_000_000n);
+    expect(toMicrounits(1.5)).toBe(1_500_000_000n);
+    expect(toMicrounits(0.000000001)).toBe(1n);
+    expect(toMicrounits(22000)).toBe(22_000_000_000_000n);
   });
 
-  it('should convert microunits to tokens', () => {
-    expect(fromMicrounits(1_000_000n)).toBe(1);
-    expect(fromMicrounits(1_500_000n)).toBe(1.5);
-    expect(fromMicrounits(1n)).toBe(0.000001);
+  it('should convert nanounits to tokens', () => {
+    expect(fromMicrounits(1_000_000_000n)).toBe(1);
+    expect(fromMicrounits(1_500_000_000n)).toBe(1.5);
+    expect(fromMicrounits(1n)).toBe(0.000000001);
   });
 
   it('should round-trip correctly', () => {
@@ -286,22 +286,22 @@ describe('rewardsToEntries', () => {
 
     expect(entries).toHaveLength(2);
     expect(entries[0].accountId).toBe('alice');
-    expect(entries[0].amountMicrounits).toBe(1_500_000n);
+    expect(entries[0].amountMicrounits).toBe(1_500_000_000n);
     expect(entries[1].accountId).toBe('bob');
-    expect(entries[1].amountMicrounits).toBe(2_250_000n);
+    expect(entries[1].amountMicrounits).toBe(2_250_000_000n);
   });
 });
 
 describe('serializeRewardProof / deserializeRewardProof', () => {
   it('should serialize proof to JSON-safe format with string decimal', () => {
     const commitment = buildRewardCommitment('2026-01-28', [
-      { accountId: 'alice', amountMicrounits: 1_500_000n },
+      { accountId: 'alice', amountMicrounits: 1_500_000_000n },
     ]);
     const proof = commitment.getProof('alice')!;
 
     const serialized = serializeRewardProof(proof);
 
-    expect(serialized.amountMicrounits).toBe('1500000');
+    expect(serialized.amountMicrounits).toBe('1500000000');
     expect(serialized.amountTokens).toBe('1.5'); // String decimal, not float
     expect(typeof serialized.amountMicrounits).toBe('string');
     expect(typeof serialized.amountTokens).toBe('string');
@@ -316,7 +316,7 @@ describe('serializeRewardProof / deserializeRewardProof', () => {
     const serialized = serializeRewardProof(proof);
 
     expect(serialized.amountMicrounits).toBe('123');
-    expect(serialized.amountTokens).toBe('0.000123');
+    expect(serialized.amountTokens).toBe('0.000000123');
   });
 
   it('should serialize zero amount correctly', () => {
@@ -333,19 +333,19 @@ describe('serializeRewardProof / deserializeRewardProof', () => {
 
   it('should serialize exact integer amounts correctly', () => {
     const commitment = buildRewardCommitment('2026-01-28', [
-      { accountId: 'alice', amountMicrounits: 5_000_000n },
+      { accountId: 'alice', amountMicrounits: 5_000_000_000n },
     ]);
     const proof = commitment.getProof('alice')!;
 
     const serialized = serializeRewardProof(proof);
 
-    expect(serialized.amountMicrounits).toBe('5000000');
+    expect(serialized.amountMicrounits).toBe('5000000000');
     expect(serialized.amountTokens).toBe('5.0');
   });
 
   it('should round-trip through serialization', () => {
     const commitment = buildRewardCommitment('2026-01-28', [
-      { accountId: 'alice', amountMicrounits: 2_718_281n },
+      { accountId: 'alice', amountMicrounits: 2_718_281_828n },
     ]);
     const original = commitment.getProof('alice')!;
 

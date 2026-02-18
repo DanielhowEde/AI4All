@@ -410,6 +410,7 @@ impl Error {
             Error::ConfigNotFound { .. }
                 | Error::ConfigParse { .. }
                 | Error::ConfigValidation { .. }
+                | Error::Config(_)
                 | Error::AuthenticationFailed { .. }
                 | Error::ProtocolVersion { .. }
                 | Error::Internal(_)

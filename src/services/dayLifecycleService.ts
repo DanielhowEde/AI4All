@@ -13,7 +13,7 @@ import { DEFAULT_REWARD_CONFIG, DEFAULT_BLOCK_ASSIGNMENT_CONFIG } from '../types
 import { DEFAULT_CANARY_CONFIG, seededRandom } from '../canaryGenerator';
 import { assignDailyWork } from './workAssignmentService';
 import { persistDay } from '../persistence/persistDay';
-import { toMicroUnits } from '../fixedPoint';
+import { toNanoUnits } from '../fixedPoint';
 
 export interface DayStartResult {
   dayId: string;
@@ -68,8 +68,8 @@ export function startNewDay(state: ApiState, dayId?: string): DayStartResult {
   state.dayPhase = 'ACTIVE';
 
   // Persist day lifecycle to kv store if available
-  if (state.kvStore) {
-    state.kvStore.saveDayPhase({
+  if (state.operationalStore) {
+    state.operationalStore.saveDayPhase({
       dayPhase: 'ACTIVE',
       currentDayId: resolvedDayId,
       currentDaySeed: seed,
@@ -117,15 +117,15 @@ export async function finalizeCurrent(state: ApiState): Promise<FinalizeResult> 
   state.networkState = newState;
 
   // Credit rewards to balance ledger
-  if (state.balanceStore && result.rewardDistribution.rewards.length > 0) {
+  if (state.balanceLedger && result.rewardDistribution.rewards.length > 0) {
     const credits = result.rewardDistribution.rewards
       .filter(r => r.totalReward > 0)
       .map(r => ({
         accountId: r.accountId,
-        amountMicro: toMicroUnits(r.totalReward),
+        amountMicro: toNanoUnits(r.totalReward),
       }));
     if (credits.length > 0) {
-      state.balanceStore.creditRewards(dayId, credits);
+      state.balanceLedger.creditRewards(dayId, credits);
     }
   }
 
@@ -133,9 +133,9 @@ export async function finalizeCurrent(state: ApiState): Promise<FinalizeResult> 
   resetDayState(state);
 
   // Clear day lifecycle in kv store
-  if (state.kvStore) {
-    state.kvStore.clearDayPhase();
-    state.kvStore.saveNodeKeys(state.nodeKeys);
+  if (state.operationalStore) {
+    state.operationalStore.clearDayPhase();
+    state.operationalStore.saveNodeKeys(state.nodeKeys);
   }
 
   return {

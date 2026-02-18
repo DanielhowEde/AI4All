@@ -95,6 +95,19 @@ pub enum Message {
 
     /// Error response
     Error(ErrorMessage),
+
+    // ─── Peer Discovery (via Coordinator) ─────────────────────────
+    /// Worker announces its P2P listen address
+    PeerDiscover(PeerDiscoverMessage),
+
+    /// Coordinator sends directory of available peers
+    PeerDirectory(PeerDirectoryMessage),
+
+    /// Coordinator assigns worker to a group
+    GroupAssigned(GroupAssignedMessage),
+
+    /// Coordinator updates group membership
+    GroupUpdate(GroupUpdateMessage),
 }
 
 impl Message {
@@ -112,6 +125,10 @@ impl Message {
             Message::ConfigUpdate(_) => "CONFIG_UPDATE",
             Message::Shutdown(_) => "SHUTDOWN",
             Message::Error(_) => "ERROR",
+            Message::PeerDiscover(_) => "PEER_DISCOVER",
+            Message::PeerDirectory(_) => "PEER_DIRECTORY",
+            Message::GroupAssigned(_) => "GROUP_ASSIGNED",
+            Message::GroupUpdate(_) => "GROUP_UPDATE",
         }
     }
 
@@ -124,6 +141,7 @@ impl Message {
                 | Message::TaskResult(_)
                 | Message::StatusUpdate(_)
                 | Message::Shutdown(_)
+                | Message::PeerDiscover(_)
         )
     }
 
@@ -525,6 +543,289 @@ pub struct ErrorMessage {
     /// Whether the error is fatal (connection should be closed)
     #[serde(default)]
     pub fatal: bool,
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Peer Discovery Messages (via Coordinator)
+// ─────────────────────────────────────────────────────────────────
+
+/// Worker announces its P2P listen address to the coordinator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerDiscoverMessage {
+    /// Worker ID
+    pub worker_id: String,
+
+    /// TCP address for direct peer connections (e.g. "192.168.1.10:9100")
+    pub listen_addr: String,
+
+    /// Worker capabilities
+    pub capabilities: WorkerCapabilities,
+}
+
+/// Directory of peers from the coordinator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerDirectoryMessage {
+    /// List of available peers
+    pub peers: Vec<PeerDirectoryEntry>,
+}
+
+/// A single peer entry in the directory
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeerDirectoryEntry {
+    /// Worker ID
+    pub worker_id: String,
+
+    /// Human-readable name
+    pub name: String,
+
+    /// Direct TCP address for P2P connections
+    pub listen_addr: String,
+
+    /// Worker capabilities
+    pub capabilities: WorkerCapabilities,
+
+    /// Current status
+    pub status: WorkerStatus,
+}
+
+/// Coordinator assigns a worker to a group
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupAssignedMessage {
+    /// Group ID
+    pub group_id: String,
+
+    /// Purpose of the group
+    pub purpose: GroupPurposeMessage,
+
+    /// Members of the group
+    pub members: Vec<GroupMemberMessage>,
+}
+
+/// Group purpose description for wire format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum GroupPurposeMessage {
+    ModelShard {
+        model_id: String,
+        total_shards: u32,
+    },
+    TaskPipeline {
+        pipeline_id: String,
+        stages: Vec<TaskType>,
+    },
+    General,
+}
+
+/// Group member info for wire format
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupMemberMessage {
+    pub worker_id: String,
+    pub role: String,
+    #[serde(default)]
+    pub shard_index: Option<u32>,
+    #[serde(default)]
+    pub pipeline_stage: Option<u32>,
+}
+
+/// Coordinator sends group membership update
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupUpdateMessage {
+    /// Group ID
+    pub group_id: String,
+
+    /// Updated member list
+    pub members: Vec<GroupMemberMessage>,
+
+    /// Whether the group is being disbanded
+    #[serde(default)]
+    pub disbanded: bool,
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Peer-to-Peer Messages (Direct TCP between workers)
+// ─────────────────────────────────────────────────────────────────
+
+/// Messages sent directly between workers over TCP mesh
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PeerMessage {
+    // ─── Handshake ──────────────────────────────────────────────
+    /// Initial hello when connecting to a peer
+    Hello {
+        worker_id: String,
+        capabilities: WorkerCapabilities,
+    },
+
+    /// Acknowledgment of hello
+    HelloAck {
+        worker_id: String,
+    },
+
+    // ─── Health / Status ────────────────────────────────────────
+    /// Ping for latency measurement
+    Ping { seq: u64 },
+
+    /// Pong response
+    Pong { seq: u64 },
+
+    /// Status update broadcast
+    PeerStatus {
+        status: WorkerStatus,
+        active_tasks: u32,
+        /// Available capacity as percentage (0.0 - 1.0)
+        capacity_pct: f32,
+    },
+
+    // ─── Task Collaboration ─────────────────────────────────────
+    /// Offer a task to a peer (work redistribution)
+    TaskOffer {
+        task_id: String,
+        task_type: TaskType,
+        priority: u32,
+    },
+
+    /// Accept a task offer
+    TaskAccept {
+        task_id: String,
+    },
+
+    /// Reject a task offer
+    TaskReject {
+        task_id: String,
+        reason: String,
+    },
+
+    /// Send raw data for a task (intermediate results, tensors)
+    TaskData {
+        task_id: String,
+        #[serde(with = "base64_bytes")]
+        data: Vec<u8>,
+    },
+
+    /// Forward a task result to a peer
+    TaskResultForward {
+        task_id: String,
+        output: TaskOutput,
+    },
+
+    // ─── Model Sharding ─────────────────────────────────────────
+    /// Assign a model shard to this peer
+    ShardAssign {
+        group_id: String,
+        model_id: String,
+        shard_index: u32,
+        total_shards: u32,
+    },
+
+    /// Signal that a shard is loaded and ready
+    ShardReady {
+        group_id: String,
+        shard_index: u32,
+    },
+
+    /// Send tensor data to the next shard in the pipeline
+    ShardInput {
+        group_id: String,
+        layer_start: u32,
+        #[serde(with = "base64_bytes")]
+        tensor_data: Vec<u8>,
+    },
+
+    /// Receive tensor output from a shard
+    ShardOutput {
+        group_id: String,
+        layer_end: u32,
+        #[serde(with = "base64_bytes")]
+        tensor_data: Vec<u8>,
+    },
+
+    // ─── Pipeline Collaboration ─────────────────────────────────
+    /// Send input to the next stage in a task pipeline
+    PipelineInput {
+        group_id: String,
+        stage: u32,
+        task_id: String,
+        input: TaskInput,
+    },
+
+    /// Send output from a pipeline stage
+    PipelineOutput {
+        group_id: String,
+        stage: u32,
+        task_id: String,
+        output: TaskOutput,
+    },
+
+    // ─── Group Coordination ─────────────────────────────────────
+    /// Join a work group
+    GroupJoin {
+        group_id: String,
+        role: String,
+    },
+
+    /// Leave a work group
+    GroupLeave {
+        group_id: String,
+    },
+
+    /// Synchronize group state
+    GroupSync {
+        group_id: String,
+        state: serde_json::Value,
+    },
+}
+
+impl PeerMessage {
+    /// Get the message type name
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            PeerMessage::Hello { .. } => "HELLO",
+            PeerMessage::HelloAck { .. } => "HELLO_ACK",
+            PeerMessage::Ping { .. } => "PING",
+            PeerMessage::Pong { .. } => "PONG",
+            PeerMessage::PeerStatus { .. } => "PEER_STATUS",
+            PeerMessage::TaskOffer { .. } => "TASK_OFFER",
+            PeerMessage::TaskAccept { .. } => "TASK_ACCEPT",
+            PeerMessage::TaskReject { .. } => "TASK_REJECT",
+            PeerMessage::TaskData { .. } => "TASK_DATA",
+            PeerMessage::TaskResultForward { .. } => "TASK_RESULT_FORWARD",
+            PeerMessage::ShardAssign { .. } => "SHARD_ASSIGN",
+            PeerMessage::ShardReady { .. } => "SHARD_READY",
+            PeerMessage::ShardInput { .. } => "SHARD_INPUT",
+            PeerMessage::ShardOutput { .. } => "SHARD_OUTPUT",
+            PeerMessage::PipelineInput { .. } => "PIPELINE_INPUT",
+            PeerMessage::PipelineOutput { .. } => "PIPELINE_OUTPUT",
+            PeerMessage::GroupJoin { .. } => "GROUP_JOIN",
+            PeerMessage::GroupLeave { .. } => "GROUP_LEAVE",
+            PeerMessage::GroupSync { .. } => "GROUP_SYNC",
+        }
+    }
+}
+
+/// Helper module for base64 serialization of byte vectors
+mod base64_bytes {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use serde::de;
+
+    pub fn serialize<S>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        serializer.serialize_str(&encoded)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use base64::Engine;
+        let s = String::deserialize(deserializer)?;
+        base64::engine::general_purpose::STANDARD
+            .decode(&s)
+            .map_err(de::Error::custom)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────

@@ -14,7 +14,12 @@ export {
   IStateStore,
   IAssignmentStore,
   ISubmissionStore,
+  IOperationalStore,
+  IBalanceLedger,
   StateSnapshot,
+  BalanceRow,
+  BalanceHistoryRow,
+  DayLifecycleData,
 } from './interfaces';
 
 // Event builder
@@ -28,12 +33,17 @@ export {
 // State projection
 export { applyEvent, projectState } from './stateProjection';
 
+// State serializer
+export { serializeNetworkState, deserializeNetworkState } from './stateSerializer';
+
 // In-memory stores
 export {
   InMemoryEventStore,
   InMemoryStateStore,
   InMemoryAssignmentStore,
   InMemorySubmissionStore,
+  InMemoryOperationalStore,
+  InMemoryBalanceLedger,
   createInMemoryStores,
 } from './inMemoryStores';
 
@@ -49,6 +59,6 @@ export {
   ReplayReport,
 } from './replayRunner';
 
-// SQLite stores
-export { createSqliteStores } from './sqlite';
-export type { SqliteStores } from './sqlite';
+// File-based stores
+export { createFileStores } from './file';
+export type { FileStores } from './file';

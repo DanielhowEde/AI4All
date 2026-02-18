@@ -249,7 +249,11 @@ impl BenchmarkRunner {
         // Score: normalized considering thread count
         // Reference: ~1000 ops/sec per thread = 500 score
         let expected_ops = 1000.0 * thread_count as f64;
-        let score = ((ops_per_second / expected_ops) * 500.0).min(1000.0) as u32;
+        let mut score = ((ops_per_second / expected_ops) * 500.0).min(1000.0) as u32;
+        // Ensure minimum score of 1 when work was completed (debug builds are slow)
+        if total > 0 && score == 0 {
+            score = 1;
+        }
 
         Ok((score, ops_per_second))
     }

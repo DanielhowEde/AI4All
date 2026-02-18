@@ -10,7 +10,7 @@ use tokio::sync::RwLock as TokioRwLock;
 use crate::error::{Error, Result};
 use crate::types::TaskType;
 
-use super::{BackendCapabilities, BackendConfig, CpuBackend, InferenceBackend, MockBackend};
+use super::{BackendCapabilities, BackendConfig, CpuBackend, InferenceBackend, MockBackend, OpenAiBackend, OpenAiConfig};
 
 // ─────────────────────────────────────────────────────────────────
 // Backend Type
@@ -27,6 +27,8 @@ pub enum BackendType {
     Rocm,
     /// Vulkan backend (cross-vendor GPU)
     Vulkan,
+    /// OpenAI-compatible API backend
+    OpenAi,
     /// Mock backend (for testing)
     Mock,
 }
@@ -39,6 +41,7 @@ impl BackendType {
             BackendType::Cuda,
             BackendType::Rocm,
             BackendType::Vulkan,
+            BackendType::OpenAi,
             BackendType::Mock,
         ]
     }
@@ -50,6 +53,7 @@ impl BackendType {
             BackendType::Cuda => "cuda",
             BackendType::Rocm => "rocm",
             BackendType::Vulkan => "vulkan",
+            BackendType::OpenAi => "openai",
             BackendType::Mock => "mock",
         }
     }
@@ -57,11 +61,12 @@ impl BackendType {
     /// Check if this backend type is available
     pub fn is_available(&self) -> bool {
         match self {
-            BackendType::Cpu => true, // Always available
+            BackendType::Cpu => true,
             BackendType::Cuda => cfg!(feature = "cuda"),
             BackendType::Rocm => cfg!(feature = "rocm"),
             BackendType::Vulkan => cfg!(feature = "vulkan"),
-            BackendType::Mock => true, // Always available
+            BackendType::OpenAi => true, // Always available (HTTP-only)
+            BackendType::Mock => true,
         }
     }
 
@@ -72,6 +77,7 @@ impl BackendType {
             "cuda" => Some(BackendType::Cuda),
             "rocm" => Some(BackendType::Rocm),
             "vulkan" => Some(BackendType::Vulkan),
+            "openai" => Some(BackendType::OpenAi),
             "mock" => Some(BackendType::Mock),
             _ => None,
         }
@@ -139,6 +145,10 @@ impl BackendFactory {
                         "Vulkan backend requires 'vulkan' feature".to_string()
                     ))
                 }
+            }
+            BackendType::OpenAi => {
+                let openai_config = config.openai.clone().unwrap_or_default();
+                Ok(Box::new(OpenAiBackend::new(openai_config)))
             }
             BackendType::Mock => {
                 Ok(Box::new(MockBackend::new()))
@@ -279,7 +289,9 @@ impl BackendRegistry {
             BackendType::Cuda,
             BackendType::Rocm,
             BackendType::Vulkan,
+            BackendType::OpenAi,
             BackendType::Cpu,
+            BackendType::Mock,
         ];
 
         for backend_type in priority {

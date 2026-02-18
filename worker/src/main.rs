@@ -14,6 +14,7 @@ mod executor;
 mod gpu;
 mod logging;
 mod pairing;
+mod peer;
 #[cfg(feature = "gpu")]
 mod plugins;
 mod protocol;
@@ -36,7 +37,8 @@ use crate::coordinator::{ClientEvent, CoordinatorClient, CoordinatorClientConfig
 use crate::error::{Error, Result};
 use crate::executor::{ExecutorConfig, TaskExecutor};
 use crate::logging::LogGuards;
-use crate::protocol::{WorkerCapabilities, WorkerStatus};
+use crate::peer::{GroupManager, GroupRole, MeshConfig, PeerEvent, PeerMesh, PeerRegistry};
+use crate::protocol::{PeerMessage, WorkerCapabilities, WorkerStatus};
 use crate::system::{BenchmarkRunner, FirstRunExperience, HealthMonitor};
 use crate::types::TaskType;
 
@@ -66,7 +68,7 @@ fn main() -> Result<()> {
                 .build()
                 .map_err(|e| Error::Internal(format!("Failed to create runtime: {}", e)))?;
             return rt.block_on(async {
-                pairing::run_pairing(api_url, name, force)
+                pairing::run_pairing(api_url, name, *force)
                     .await
                     .map_err(|e| Error::Internal(e.to_string()))
             });
@@ -252,12 +254,39 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
             use_mmap: true,
             use_mlock: false,
             seed: None,
+            openai: None,
         };
 
         let reg = registry.read();
         match reg.register(BackendType::Cpu, cpu_config) {
             Ok(_) => info!("CPU backend registered"),
             Err(e) => warn!(error = %e, "Failed to register CPU backend (llama feature may not be enabled)"),
+        }
+    }
+
+    // Register OpenAI backend (for API-based inference via OpenAI, Ollama, vLLM, etc.)
+    if config.openai.enabled {
+        use crate::backend::OpenAiConfig;
+
+        let openai_config = BackendConfig {
+            openai: Some(OpenAiConfig {
+                base_url: config.openai.base_url.clone(),
+                api_key: config.openai.api_key.clone(),
+                default_model: config.openai.default_model.clone(),
+                timeout_secs: config.openai.timeout_secs,
+                max_retries: config.openai.max_retries,
+            }),
+            ..BackendConfig::default()
+        };
+
+        let reg = registry.read();
+        match reg.register(BackendType::OpenAi, openai_config) {
+            Ok(_) => info!(
+                base_url = %config.openai.base_url,
+                model = %config.openai.default_model,
+                "OpenAI backend registered"
+            ),
+            Err(e) => warn!(error = %e, "Failed to register OpenAI backend"),
         }
     }
 
@@ -303,6 +332,37 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
     let worker_name = config.worker.name.clone()
         .unwrap_or_else(|| format!("AI4All Worker ({})", sys_info.hostname));
 
+    // Initialize peer-to-peer mesh networking
+    let peer_registry = Arc::new(PeerRegistry::new());
+    let group_manager = Arc::new(GroupManager::new(worker_id.clone()));
+
+    let mesh_config = MeshConfig {
+        listen_port: config.peer.listen_port,
+        max_peers: config.peer.max_peers,
+        ..MeshConfig::default()
+    };
+
+    let (peer_event_tx, mut peer_event_rx) = tokio::sync::mpsc::channel::<PeerEvent>(100);
+    let peer_mesh = Arc::new(PeerMesh::new(
+        mesh_config,
+        worker_id.clone(),
+        capabilities.clone(),
+        peer_registry.clone(),
+        peer_event_tx,
+    ));
+
+    // Start peer mesh listener if enabled
+    if config.peer.enabled {
+        match peer_mesh.start().await {
+            Ok(addr) => {
+                info!(listen_addr = %addr, "Peer mesh listener started");
+            }
+            Err(e) => {
+                warn!(error = %e, "Failed to start peer mesh listener, P2P disabled");
+            }
+        }
+    }
+
     let mut client = CoordinatorClient::new(
         coordinator_config,
         worker_name.clone(),
@@ -331,7 +391,85 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
     let mut health_timer = tokio::time::interval(Duration::from_secs(60));
     health_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    info!("Worker event loop started");
+    // HTTP task polling setup (for on-demand task API)
+    let coordinator_http_base = config.coordinator.url
+        .replace("ws://", "http://")
+        .replace("wss://", "https://")
+        .trim_end_matches('/')
+        .to_string();
+
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap_or_default();
+
+    let mut task_poll_timer = tokio::time::interval(Duration::from_secs(5));
+    task_poll_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    // Track task IDs received via HTTP polling (vs WebSocket)
+    let mut http_polled_tasks: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Self-register as a peer if account_id and node_key are configured.
+    // This makes the worker visible for HTTP task polling.
+    let mut coordinator_worker_id = worker_id.clone();
+    if let (Some(account_id), Some(node_key)) = (&config.worker.account_id, &config.worker.node_key) {
+        let listen_addr = peer_mesh.listen_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_else(|| format!("127.0.0.1:{}", config.peer.listen_port));
+
+        let register_body = serde_json::json!({
+            "accountId": account_id,
+            "nodeKey": node_key,
+            "listenAddr": listen_addr,
+            "capabilities": {
+                "supportedTasks": ["text_completion", "embeddings"],
+                "maxConcurrentTasks": 4,
+                "availableMemoryMb": sys_info.total_memory_mb,
+                "gpuAvailable": false,
+                "maxContextLength": 4096,
+                "workerVersion": env!("CARGO_PKG_VERSION"),
+            }
+        });
+
+        let url = format!("{}/peers/register", coordinator_http_base);
+        match http_client.post(&url).json(&register_body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(body) = resp.json::<serde_json::Value>().await {
+                    if let Some(wid) = body["workerId"].as_str() {
+                        coordinator_worker_id = wid.to_string();
+                        info!(
+                            worker_id = %coordinator_worker_id,
+                            account_id = %account_id,
+                            "Registered as peer with coordinator"
+                        );
+                    }
+                }
+            }
+            Ok(resp) => {
+                let status = resp.status();
+                let text = resp.text().await.unwrap_or_default();
+                warn!(
+                    status = %status,
+                    body = %text,
+                    "Peer registration failed (task polling will not work)"
+                );
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    "Could not reach coordinator for peer registration"
+                );
+            }
+        }
+    } else {
+        info!("No account_id/node_key configured — skipping peer registration (task polling requires registration)");
+    }
+
+    info!(
+        coordinator_http = %coordinator_http_base,
+        polling_worker_id = %coordinator_worker_id,
+        "Worker event loop started"
+    );
 
     // Main event loop
     loop {
@@ -353,6 +491,10 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
                     }
                     Some(ClientEvent::Registered { worker_id: assigned_id }) => {
                         info!(worker_id = %assigned_id, "Registered with coordinator");
+                        // Announce P2P listen address if mesh is running
+                        if let Some(addr) = peer_mesh.listen_addr() {
+                            info!(peer_addr = %addr, "Announcing P2P address to coordinator");
+                        }
                     }
                     Some(ClientEvent::TaskAssigned(assignment)) => {
                         let task_id = assignment.task_id.clone();
@@ -406,6 +548,115 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
                     Some(ClientEvent::HeartbeatAck) => {
                         debug!("Heartbeat acknowledged");
                     }
+                    Some(ClientEvent::PeerDirectory(peers)) => {
+                        info!(count = peers.len(), "Received peer directory");
+                        for entry in &peers {
+                            if entry.worker_id == worker_id {
+                                continue; // Skip self
+                            }
+                            if let Ok(addr) = entry.listen_addr.parse() {
+                                let peer_info = peer::PeerInfo {
+                                    worker_id: entry.worker_id.clone(),
+                                    name: entry.name.clone(),
+                                    listen_addr: addr,
+                                    capabilities: entry.capabilities.clone(),
+                                    status: WorkerStatus::Ready,
+                                    last_seen: std::time::Instant::now(),
+                                    latency_ms: None,
+                                    groups: vec![],
+                                };
+                                peer_registry.register(peer_info);
+                            }
+                        }
+                        // Auto-connect to discovered peers if enabled
+                        if config.peer.auto_connect {
+                            let all_peers = peer_registry.all_peers();
+                            let mesh = peer_mesh.clone();
+                            tokio::spawn(async move {
+                                for p in &all_peers {
+                                    if let Err(e) = mesh.connect(p).await {
+                                        debug!(
+                                            peer = %p.worker_id,
+                                            error = %e,
+                                            "Failed to connect to peer"
+                                        );
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    Some(ClientEvent::PeerDiscovered(entry)) => {
+                        if entry.worker_id != worker_id {
+                            info!(peer = %entry.worker_id, "New peer discovered");
+                            if let Ok(addr) = entry.listen_addr.parse() {
+                                let peer_info = peer::PeerInfo {
+                                    worker_id: entry.worker_id.clone(),
+                                    name: entry.name.clone(),
+                                    listen_addr: addr,
+                                    capabilities: entry.capabilities.clone(),
+                                    status: WorkerStatus::Ready,
+                                    last_seen: std::time::Instant::now(),
+                                    latency_ms: None,
+                                    groups: vec![],
+                                };
+                                peer_registry.register(peer_info.clone());
+                                if config.peer.auto_connect {
+                                    let mesh = peer_mesh.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = mesh.connect(&peer_info).await {
+                                            debug!(error = %e, "Failed to connect to new peer");
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Some(ClientEvent::PeerLeft { worker_id: peer_id }) => {
+                        info!(peer = %peer_id, "Peer left network");
+                        peer_registry.remove(&peer_id);
+                        let mesh = peer_mesh.clone();
+                        let pid = peer_id.clone();
+                        tokio::spawn(async move {
+                            mesh.disconnect(&pid);
+                        });
+                    }
+                    Some(ClientEvent::GroupAssigned(group_msg)) => {
+                        info!(
+                            group_id = %group_msg.group_id,
+                            "Assigned to work group"
+                        );
+                        // Convert wire-format purpose to internal GroupPurpose
+                        let purpose = match group_msg.purpose {
+                            protocol::GroupPurposeMessage::ModelShard { model_id, total_shards } => {
+                                peer::GroupPurpose::ModelShard { model_id, total_shards }
+                            }
+                            protocol::GroupPurposeMessage::TaskPipeline { pipeline_id, stages } => {
+                                peer::GroupPurpose::TaskPipeline { pipeline_id, stages }
+                            }
+                            protocol::GroupPurposeMessage::General => {
+                                peer::GroupPurpose::General
+                            }
+                        };
+                        let group = peer::WorkGroup {
+                            group_id: group_msg.group_id.clone(),
+                            purpose,
+                            members: group_msg.members.iter().map(|m| {
+                                peer::GroupMember {
+                                    worker_id: m.worker_id.clone(),
+                                    role: if m.role == "coordinator" {
+                                        GroupRole::Coordinator
+                                    } else {
+                                        GroupRole::Member
+                                    },
+                                    shard_index: m.shard_index,
+                                    pipeline_stage: m.pipeline_stage.map(|s| s as usize),
+                                    ready: false,
+                                }
+                            }).collect(),
+                            created_at: chrono::Utc::now(),
+                        };
+                        group_manager.add_group(group);
+                    }
                     Some(ClientEvent::ConfigUpdate(new_config)) => {
                         info!("Configuration update received from coordinator");
                         debug!(config = %new_config, "New config values");
@@ -429,16 +680,63 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
             result = result_rx.recv() => {
                 match result {
                     Some(task_result) => {
+                        let is_http_task = http_polled_tasks.remove(&task_result.task_id);
                         info!(
                             task_id = %task_result.task_id,
                             success = task_result.success,
                             execution_ms = task_result.metrics.execution_time_ms,
+                            source = if is_http_task { "http" } else { "ws" },
                             "Task completed"
                         );
 
-                        // Forward result to coordinator
-                        if let Err(e) = client.submit_result(task_result).await {
-                            error!(error = %e, "Failed to submit task result");
+                        if is_http_task {
+                            // POST result back to coordinator via HTTP task API
+                            let output_text = task_result.output.as_ref().map(|o| match o {
+                                types::TaskOutput::TextCompletion(tc) => tc.text.clone(),
+                                other => format!("{:?}", other),
+                            }).unwrap_or_default();
+
+                            let finish_reason = if task_result.success { "stop" } else { "error" };
+
+                            let complete_body = serde_json::json!({
+                                "workerId": coordinator_worker_id,
+                                "taskId": task_result.task_id,
+                                "output": output_text,
+                                "finishReason": finish_reason,
+                                "tokenUsage": {
+                                    "promptTokens": task_result.metrics.tokens_processed.unwrap_or(0) / 2,
+                                    "completionTokens": (task_result.metrics.tokens_processed.unwrap_or(0) + 1) / 2,
+                                    "totalTokens": task_result.metrics.tokens_processed.unwrap_or(0),
+                                },
+                                "executionTimeMs": task_result.metrics.execution_time_ms,
+                                "error": task_result.error.as_ref().map(|e| &e.message),
+                            });
+
+                            let url = format!("{}/tasks/complete", coordinator_http_base);
+                            match http_client.post(&url).json(&complete_body).send().await {
+                                Ok(resp) if resp.status().is_success() => {
+                                    info!(task_id = %task_result.task_id, "HTTP task result posted");
+                                }
+                                Ok(resp) => {
+                                    warn!(
+                                        task_id = %task_result.task_id,
+                                        status = %resp.status(),
+                                        "Failed to post HTTP task result"
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(
+                                        task_id = %task_result.task_id,
+                                        error = %e,
+                                        "Failed to post HTTP task result"
+                                    );
+                                }
+                            }
+                        } else {
+                            // Forward result to coordinator via WebSocket
+                            if let Err(e) = client.submit_result(task_result).await {
+                                error!(error = %e, "Failed to submit task result");
+                            }
                         }
 
                         // Update status based on remaining work
@@ -448,6 +746,171 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
                     }
                     None => {
                         warn!("Task result channel closed");
+                    }
+                }
+            }
+
+            // Events from peer mesh
+            peer_event = peer_event_rx.recv() => {
+                match peer_event {
+                    Some(PeerEvent::Connected { worker_id: peer_id }) => {
+                        info!(peer = %peer_id, "Peer connected");
+                    }
+                    Some(PeerEvent::Disconnected { worker_id: peer_id, reason }) => {
+                        info!(peer = %peer_id, reason = %reason, "Peer disconnected");
+                    }
+                    Some(PeerEvent::MessageReceived { from, message }) => {
+                        match message {
+                            PeerMessage::PeerStatus { status, .. } => {
+                                debug!(peer = %from, status = ?status, "Peer status update");
+                                peer_registry.update_status(&from, status);
+                            }
+                            PeerMessage::Ping { seq } => {
+                                debug!(peer = %from, seq, "Peer ping");
+                                // Pong is handled by the mesh read loop
+                            }
+                            PeerMessage::GroupJoin { group_id, role } => {
+                                let role = if role == "coordinator" {
+                                    GroupRole::Coordinator
+                                } else {
+                                    GroupRole::Member
+                                };
+                                group_manager.add_member(&group_id, &from, role);
+                                info!(peer = %from, group = %group_id, "Peer joined group");
+                            }
+                            PeerMessage::GroupLeave { group_id } => {
+                                group_manager.remove_member(&group_id, &from);
+                                info!(peer = %from, group = %group_id, "Peer left group");
+                            }
+                            PeerMessage::ShardReady { group_id, shard_index } => {
+                                group_manager.set_member_ready(&group_id, &from);
+                                info!(
+                                    peer = %from,
+                                    group = %group_id,
+                                    shard = shard_index,
+                                    "Peer shard ready"
+                                );
+                                if group_manager.all_members_ready(&group_id) {
+                                    info!(group = %group_id, "All shards ready");
+                                }
+                            }
+                            _ => {
+                                debug!(
+                                    peer = %from,
+                                    msg_type = %message.type_name(),
+                                    "Unhandled peer message"
+                                );
+                            }
+                        }
+                    }
+                    Some(PeerEvent::ListenerReady { addr }) => {
+                        info!(addr = %addr, "Peer mesh listener ready");
+                    }
+                    Some(PeerEvent::Error { worker_id: peer_id, error }) => {
+                        warn!(peer = ?peer_id, error = %error, "Peer error");
+                    }
+                    None => {
+                        debug!("Peer event channel closed");
+                    }
+                }
+            }
+
+            // HTTP task polling (on-demand task API)
+            _ = task_poll_timer.tick() => {
+                if executor.can_accept() {
+                    let url = format!(
+                        "{}/tasks/pending?workerId={}&limit=1",
+                        coordinator_http_base, coordinator_worker_id
+                    );
+                    match http_client.get(&url).send().await {
+                        Ok(resp) if resp.status().is_success() => {
+                            if let Ok(body) = resp.json::<serde_json::Value>().await {
+                                if let Some(tasks) = body["tasks"].as_array() {
+                                    for task_json in tasks {
+                                        if let (Some(task_id), Some(prompt)) = (
+                                            task_json["taskId"].as_str(),
+                                            task_json["prompt"].as_str(),
+                                        ) {
+                                            let model = task_json["model"]
+                                                .as_str()
+                                                .unwrap_or("default");
+                                            let system_prompt = task_json["systemPrompt"]
+                                                .as_str()
+                                                .map(|s| s.to_string());
+
+                                            let priority = match task_json["priority"].as_str() {
+                                                Some("CRITICAL") => protocol::TaskPriority::Critical,
+                                                Some("HIGH") => protocol::TaskPriority::High,
+                                                Some("LOW") => protocol::TaskPriority::Low,
+                                                _ => protocol::TaskPriority::Normal,
+                                            };
+
+                                            // Build TaskAssignmentMessage from HTTP response
+                                            let assignment = protocol::TaskAssignmentMessage {
+                                                task_id: task_id.to_string(),
+                                                block_id: None,
+                                                day_id: None,
+                                                priority,
+                                                deadline: None,
+                                                model_id: model.to_string(),
+                                                input: types::TaskInput::TextCompletion(
+                                                    types::TextCompletionInput {
+                                                        prompt: prompt.to_string(),
+                                                        system_prompt,
+                                                        params: types::GenerationParams {
+                                                            max_tokens: task_json["params"]["max_tokens"]
+                                                                .as_u64()
+                                                                .map(|v| v as u32)
+                                                                .unwrap_or(4096),
+                                                            temperature: task_json["params"]["temperature"]
+                                                                .as_f64()
+                                                                .map(|v| v as f32)
+                                                                .unwrap_or(0.7),
+                                                            top_p: task_json["params"]["top_p"]
+                                                                .as_f64()
+                                                                .map(|v| v as f32)
+                                                                .unwrap_or(0.9),
+                                                            ..types::GenerationParams::default()
+                                                        },
+                                                    },
+                                                ),
+                                                is_canary: false,
+                                                expected_hash: None,
+                                                timeout_secs: 300,
+                                            };
+
+                                            // Track as HTTP-polled task
+                                            http_polled_tasks.insert(task_id.to_string());
+
+                                            info!(
+                                                task_id = %task_id,
+                                                model = %model,
+                                                priority = ?priority,
+                                                "HTTP-polled task received"
+                                            );
+
+                                            let _ = client.update_status(WorkerStatus::Busy).await;
+
+                                            match executor.submit(assignment).await {
+                                                Ok(_) => {
+                                                    debug!(task_id = %task_id, "HTTP task submitted to executor");
+                                                }
+                                                Err(e) => {
+                                                    error!(task_id = %task_id, error = %e, "Failed to submit HTTP task");
+                                                    http_polled_tasks.remove(task_id);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            // Non-success status (404, 400, etc.) — silently skip
+                        }
+                        Err(e) => {
+                            debug!(error = %e, "Task poll request failed");
+                        }
                     }
                 }
             }
@@ -480,8 +943,12 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
     info!(
         completed = executor.completed_count(),
         failed = executor.failed_count(),
+        connected_peers = peer_mesh.connected_peers().len(),
         "Worker shutting down"
     );
+
+    // Shut down peer mesh
+    peer_mesh.shutdown();
 
     Ok(())
 }

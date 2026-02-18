@@ -49,6 +49,9 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 url = "2.5"
 backoff = { version = "0.4", features = ["tokio"] }
 
+# Binary encoding (for tensor data in P2P messages)
+base64 = "0.22"
+
 # System info
 hostname = "0.3"
 

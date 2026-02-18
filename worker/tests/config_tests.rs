@@ -2,7 +2,6 @@
 //!
 //! Tests configuration loading, validation, and environment overrides
 
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -305,9 +304,8 @@ fn test_env_override_coordinator_url() {
 url = "wss://file.example.com"
 "#);
 
-    // Set environment variable to override
-    env::set_var("AI4ALL_COORDINATOR_URL", "wss://env.example.com");
-
+    // Use .env() on the command only — NOT env::set_var() which causes
+    // race conditions with other tests running in parallel.
     let output = assert_cmd::Command::cargo_bin("ai4all-worker")
         .unwrap()
         .arg("config")
@@ -320,9 +318,6 @@ url = "wss://file.example.com"
 
     // Env var should override file
     output.stdout(predicates::str::contains("wss://env.example.com"));
-
-    // Cleanup
-    env::remove_var("AI4ALL_COORDINATOR_URL");
 }
 
 #[test]

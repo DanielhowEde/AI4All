@@ -37,6 +37,13 @@ impl TestEnvironment {
         fs::create_dir_all(&log_dir).expect("Failed to create log dir");
 
         // Create default config
+        // Use forward slashes in paths to avoid TOML escape issues on Windows
+        // (TOML interprets \U as unicode 8-digit hex escape, \t as tab, etc.)
+        let log_file = log_dir.join("test.log").display().to_string().replace('\\', "/");
+        let data_str = data_dir.display().to_string().replace('\\', "/");
+        let model_str = model_dir.display().to_string().replace('\\', "/");
+        let temp_str = root_path.join("temp").display().to_string().replace('\\', "/");
+
         let config = format!(r#"
 [worker]
 id = "test-worker"
@@ -68,10 +75,10 @@ data_dir = "{}"
 model_dir = "{}"
 temp_dir = "{}"
 "#,
-            log_dir.join("test.log").display(),
-            data_dir.display(),
-            model_dir.display(),
-            root_path.join("temp").display()
+            log_file,
+            data_str,
+            model_str,
+            temp_str
         );
 
         fs::write(&config_path, config).expect("Failed to write config");
@@ -184,10 +191,10 @@ fn test_storage_directories_used() {
     assert!(env.model_dir.exists());
     assert!(env.log_dir.exists());
 
-    // Config should reference these paths
+    // Config should reference these paths (forward slashes used for TOML compatibility)
     let config_content = fs::read_to_string(&env.config_path).unwrap();
-    assert!(config_content.contains(&env.data_dir.display().to_string()));
-    assert!(config_content.contains(&env.model_dir.display().to_string()));
+    assert!(config_content.contains(&env.data_dir.display().to_string().replace('\\', "/")));
+    assert!(config_content.contains(&env.model_dir.display().to_string().replace('\\', "/")));
 }
 
 // ─────────────────────────────────────────────────────────────────

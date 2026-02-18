@@ -6,6 +6,9 @@ import { createWorkRouter } from './routes/work';
 import { createRewardsRouter } from './routes/rewards';
 import { createPairingRouter } from './routes/pairing';
 import { createAccountsRouter } from './routes/accounts';
+import { createPeersRouter } from './routes/peers';
+import { createGroupsRouter } from './routes/groups';
+import { createTasksRouter } from './routes/tasks';
 import { ErrorCodes } from './types';
 
 /**
@@ -26,6 +29,10 @@ export function createApp(state: ApiState): Express {
       contributors: state.networkState.contributors.size,
       dayNumber: state.networkState.dayNumber,
       pendingSubmissions: state.pendingSubmissions.length,
+      peers: state.peers.size,
+      workGroups: state.workGroups.size,
+      pendingTasks: state.taskQueue.length,
+      activeTasks: [...state.tasks.values()].filter(t => t.status === 'ASSIGNED').length,
     });
   });
 
@@ -36,6 +43,9 @@ export function createApp(state: ApiState): Express {
   app.use('/rewards', createRewardsRouter(state));
   app.use('/pairing', createPairingRouter(state));
   app.use('/accounts', createAccountsRouter(state));
+  app.use('/peers', createPeersRouter(state));
+  app.use('/groups', createGroupsRouter(state));
+  app.use('/tasks', createTasksRouter(state));
 
   // Global error handler
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

@@ -1,7 +1,7 @@
 /**
  * Fixed-Point Reward Distribution Tests
  *
- * Tests for deterministic reward calculations using bigint microunits.
+ * Tests for deterministic reward calculations using bigint nanounits.
  */
 
 import { BlockType, Contributor, DEFAULT_REWARD_CONFIG } from './types';
@@ -14,7 +14,7 @@ import {
   calculateRewardDistribution,
   verifyExactDistribution,
 } from './rewardDistributionFixed';
-import { toMicroUnits, toTokens } from './fixedPoint';
+import { toNanoUnits, toTokens } from './fixedPoint';
 
 describe('Fixed-Point Reward Distribution', () => {
   // Helper to create a contributor with specified points
@@ -63,7 +63,7 @@ describe('Fixed-Point Reward Distribution', () => {
 
     it('should return exact microunits', () => {
       const amount = calculateBasePoolAmount(DEFAULT_REWARD_CONFIG);
-      expect(amount).toBe(4_400_000_000n); // 4,400 tokens in microunits
+      expect(amount).toBe(4_400_000_000_000n); // 4,400 tokens in nanounits
     });
   });
 
@@ -76,7 +76,7 @@ describe('Fixed-Point Reward Distribution', () => {
 
     it('should return exact microunits', () => {
       const amount = calculatePerformancePoolAmount(DEFAULT_REWARD_CONFIG);
-      expect(amount).toBe(17_600_000_000n); // 17,600 tokens in microunits
+      expect(amount).toBe(17_600_000_000_000n); // 17,600 tokens in nanounits
     });
   });
 
@@ -88,7 +88,7 @@ describe('Fixed-Point Reward Distribution', () => {
         createContributor('charlie', 200),
       ];
 
-      const poolAmount = toMicroUnits(4400);
+      const poolAmount = toNanoUnits(4400);
       const rewards = distributeBasePool(contributors, poolAmount);
 
       // Each should get 4400 / 3 = 1466.666...
@@ -107,14 +107,14 @@ describe('Fixed-Point Reward Distribution', () => {
 
     it('should handle single contributor', () => {
       const contributors = [createContributor('alice', 100)];
-      const poolAmount = toMicroUnits(4400);
+      const poolAmount = toNanoUnits(4400);
       const rewards = distributeBasePool(contributors, poolAmount);
 
       expect(rewards.get('alice')).toBe(poolAmount);
     });
 
     it('should handle empty list', () => {
-      const rewards = distributeBasePool([], toMicroUnits(4400));
+      const rewards = distributeBasePool([], toNanoUnits(4400));
       expect(rewards.size).toBe(0);
     });
   });
@@ -127,7 +127,7 @@ describe('Fixed-Point Reward Distribution', () => {
         createContributor('charlie', 900), // sqrt(900) = 30
       ]; // Total weight = 60
 
-      const poolAmount = toMicroUnits(6000);
+      const poolAmount = toNanoUnits(6000);
       const currentTime = new Date();
       const rewards = distributePerformancePool(
         contributors,
@@ -152,7 +152,7 @@ describe('Fixed-Point Reward Distribution', () => {
         createContributor('bob', 100),
       ];
 
-      const poolAmount = toMicroUnits(1000);
+      const poolAmount = toNanoUnits(1000);
       const rewards = distributePerformancePool(
         contributors,
         poolAmount,
@@ -172,7 +172,7 @@ describe('Fixed-Point Reward Distribution', () => {
         createContributor('charlie', 10),
       ];
 
-      const poolAmount = toMicroUnits(17600);
+      const poolAmount = toNanoUnits(17600);
 
       const rewards1 = distributePerformancePool(
         contributors,
@@ -232,10 +232,10 @@ describe('Fixed-Point Reward Distribution', () => {
 
       // Convert back to microunits for exact comparison
       const totalMicro = rewards.reduce((sum, r) => {
-        return sum + toMicroUnits(r.totalReward);
+        return sum + toNanoUnits(r.totalReward);
       }, 0n);
 
-      const expectedMicro = toMicroUnits(DEFAULT_REWARD_CONFIG.dailyEmissions);
+      const expectedMicro = toNanoUnits(DEFAULT_REWARD_CONFIG.dailyEmissions);
 
       // Should be exact (within 1 microunit due to floating conversion)
       expect(Number(totalMicro - expectedMicro)).toBeLessThanOrEqual(contributors.length);

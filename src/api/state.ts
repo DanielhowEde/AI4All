@@ -2,9 +2,8 @@ import * as crypto from 'crypto';
 import { NetworkState, BlockSubmission, createEmptyNetworkState } from '../services/serviceTypes';
 import { BlockAssignment } from '../types';
 import { IEventStore, IStateStore, IAssignmentStore, ISubmissionStore } from '../persistence/interfaces';
-import { DayPhase, SubmissionResultItem, PairingSession, LinkedDevice } from './types';
-import type { SqliteKvStore } from '../persistence/sqlite/kvStore';
-import type { SqliteBalanceStore } from '../persistence/sqlite/SqliteBalanceStore';
+import { DayPhase, SubmissionResultItem, PairingSession, LinkedDevice, PeerInfo, WorkGroupInfo, TaskRecord } from './types';
+import type { IOperationalStore, IBalanceLedger } from '../persistence/interfaces';
 
 /**
  * API state container for the HTTP server
@@ -44,11 +43,23 @@ export interface ApiState {
   devices: Map<string, LinkedDevice>;              // deviceId → device
   accountDevices: Map<string, string[]>;           // accountId → deviceId[]
 
-  // Optional SQLite kv store for persistence
-  kvStore?: SqliteKvStore;
+  // Peer discovery: workerId → PeerInfo
+  peers: Map<string, PeerInfo>;
 
-  // Optional balance store (SQLite only)
-  balanceStore?: SqliteBalanceStore;
+  // Work groups: groupId → WorkGroupInfo
+  workGroups: Map<string, WorkGroupInfo>;
+
+  // On-demand task queue
+  tasks: Map<string, TaskRecord>;            // taskId → TaskRecord
+  clientTasks: Map<string, string[]>;        // clientId → taskId[]
+  taskQueue: string[];                       // Priority-sorted PENDING taskIds
+  taskSequence: number;                      // Monotonic counter for ordering
+
+  // Optional operational store for persistence
+  operationalStore?: IOperationalStore;
+
+  // Optional balance ledger (event-derived)
+  balanceLedger?: IBalanceLedger;
 }
 
 /**
@@ -72,10 +83,16 @@ export function createApiState(stores: {
     processedSubmissions: new Map(),
     pendingSubmissions: [],
     nodeKeys: new Map(),
+    peers: new Map(),
+    workGroups: new Map(),
     pairings: new Map(),
     pairingCodeIndex: new Map(),
     devices: new Map(),
     accountDevices: new Map(),
+    tasks: new Map(),
+    clientTasks: new Map(),
+    taskQueue: [],
+    taskSequence: 0,
   };
 }
 

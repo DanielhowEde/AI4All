@@ -1,12 +1,13 @@
 /**
  * Fixed-Point Arithmetic Tests
  *
- * Tests for deterministic token calculations using bigint microunits.
+ * Tests for deterministic token calculations using bigint nanounits.
+ * 1 token = 1,000,000,000 nanounits (9 decimal places)
  */
 
 import {
   MAX_SAFE_TOKENS,
-  toMicroUnits,
+  toNanoUnits,
   toTokens,
   sqrtBigInt,
   sqrtPoints,
@@ -17,50 +18,51 @@ import {
 } from './fixedPoint';
 
 describe('Fixed-Point Arithmetic', () => {
-  describe('toMicroUnits', () => {
-    it('should convert whole tokens to microunits', () => {
-      expect(toMicroUnits(1)).toBe(1_000_000n);
-      expect(toMicroUnits(100)).toBe(100_000_000n);
-      expect(toMicroUnits(22000)).toBe(22_000_000_000n);
+  describe('toNanoUnits', () => {
+    it('should convert whole tokens to nanounits', () => {
+      expect(toNanoUnits(1)).toBe(1_000_000_000n);
+      expect(toNanoUnits(100)).toBe(100_000_000_000n);
+      expect(toNanoUnits(22000)).toBe(22_000_000_000_000n);
     });
 
-    it('should convert fractional tokens to microunits', () => {
-      expect(toMicroUnits(0.5)).toBe(500_000n);
-      expect(toMicroUnits(0.123456)).toBe(123_456n);
-      expect(toMicroUnits(1.999999)).toBe(1_999_999n);
+    it('should convert fractional tokens to nanounits', () => {
+      expect(toNanoUnits(0.5)).toBe(500_000_000n);
+      expect(toNanoUnits(0.123456789)).toBe(123_456_789n);
+      expect(toNanoUnits(1.999999999)).toBe(1_999_999_999n);
     });
 
     it('should handle zero', () => {
-      expect(toMicroUnits(0)).toBe(0n);
+      expect(toNanoUnits(0)).toBe(0n);
     });
 
-    it('should round to nearest microunit', () => {
-      expect(toMicroUnits(0.1234567)).toBe(123_457n); // Rounds up
-      expect(toMicroUnits(0.1234564)).toBe(123_456n); // Rounds down
+    it('should round to nearest nanounit', () => {
+      // 0.1234567891 → rounds to 123_456_789n
+      const result = toNanoUnits(0.123456789);
+      expect(result).toBe(123_456_789n);
     });
 
     it('should throw on negative tokens', () => {
-      expect(() => toMicroUnits(-1)).toThrow('Cannot convert negative tokens');
+      expect(() => toNanoUnits(-1)).toThrow('Cannot convert negative tokens');
     });
 
     it('should throw on excessive tokens', () => {
-      expect(() => toMicroUnits(Number(MAX_SAFE_TOKENS) + 1)).toThrow(
+      expect(() => toNanoUnits(Number(MAX_SAFE_TOKENS) + 1)).toThrow(
         'exceeds maximum safe value'
       );
     });
   });
 
   describe('toTokens', () => {
-    it('should convert microunits to tokens', () => {
-      expect(toTokens(1_000_000n)).toBe(1);
-      expect(toTokens(100_000_000n)).toBe(100);
-      expect(toTokens(22_000_000_000n)).toBe(22000);
+    it('should convert nanounits to tokens', () => {
+      expect(toTokens(1_000_000_000n)).toBe(1);
+      expect(toTokens(100_000_000_000n)).toBe(100);
+      expect(toTokens(22_000_000_000_000n)).toBe(22000);
     });
 
-    it('should convert fractional microunits to tokens', () => {
-      expect(toTokens(500_000n)).toBe(0.5);
-      expect(toTokens(123_456n)).toBe(0.123456);
-      expect(toTokens(1n)).toBe(0.000001);
+    it('should convert fractional nanounits to tokens', () => {
+      expect(toTokens(500_000_000n)).toBe(0.5);
+      expect(toTokens(123_456_789n)).toBeCloseTo(0.123456789, 9);
+      expect(toTokens(1n)).toBe(0.000000001);
     });
 
     it('should handle zero', () => {
@@ -68,10 +70,10 @@ describe('Fixed-Point Arithmetic', () => {
     });
 
     it('should round-trip correctly', () => {
-      const original = 1234.567890;
-      const microUnits = toMicroUnits(original);
-      const roundTrip = toTokens(microUnits);
-      expect(roundTrip).toBeCloseTo(original, 6);
+      const original = 1234.567890123;
+      const nanoUnits = toNanoUnits(original);
+      const roundTrip = toTokens(nanoUnits);
+      expect(roundTrip).toBeCloseTo(original, 9);
     });
   });
 
@@ -98,7 +100,7 @@ describe('Fixed-Point Arithmetic', () => {
 
     it('should handle large numbers', () => {
       expect(sqrtBigInt(1_000_000_000_000n)).toBe(1_000_000n);
-      expect(sqrtBigInt(9_999_999_999_999n)).toBe(3_162_277n);
+      expect(sqrtBigInt(1_000_000_000_000_000_000n)).toBe(1_000_000_000n);
     });
 
     it('should throw on negative numbers', () => {
@@ -118,13 +120,14 @@ describe('Fixed-Point Arithmetic', () => {
   describe('sqrtPoints', () => {
     it('should calculate sqrt of points with scaling', () => {
       expect(sqrtPoints(0n)).toBe(0n);
-      expect(sqrtPoints(100_000_000n)).toBe(10_000_000n); // sqrt(100) = 10
-      expect(sqrtPoints(400_000_000n)).toBe(20_000_000n); // sqrt(400) = 20
-      expect(sqrtPoints(900_000_000n)).toBe(30_000_000n); // sqrt(900) = 30
+      // sqrt(100 tokens) = 10 tokens → 100e9 nano → sqrt → 10e9 nano
+      expect(sqrtPoints(100_000_000_000n)).toBe(10_000_000_000n); // sqrt(100) = 10
+      expect(sqrtPoints(400_000_000_000n)).toBe(20_000_000_000n); // sqrt(400) = 20
+      expect(sqrtPoints(900_000_000_000n)).toBe(30_000_000_000n); // sqrt(900) = 30
     });
 
     it('should preserve precision for large values', () => {
-      const points = toMicroUnits(10000); // 10,000 tokens worth of points
+      const points = toNanoUnits(10000); // 10,000 tokens worth of points
       const weight = sqrtPoints(points);
       const weightTokens = toTokens(weight);
       expect(weightTokens).toBeCloseTo(100, 1); // sqrt(10000) = 100
@@ -133,13 +136,13 @@ describe('Fixed-Point Arithmetic', () => {
 
   describe('distributeProportional', () => {
     it('should distribute proportionally with no remainder', () => {
-      const weights = [2_000_000n, 3_000_000n, 5_000_000n]; // 2, 3, 5 = 10 total
-      const pool = 10_000_000n; // 10 tokens
+      const weights = [2_000_000_000n, 3_000_000_000n, 5_000_000_000n]; // 2, 3, 5 = 10 total
+      const pool = 10_000_000_000n; // 10 tokens
       const shares = distributeProportional(weights, pool);
 
-      expect(shares[0]).toBe(2_000_000n); // 2/10 * 10 = 2
-      expect(shares[1]).toBe(3_000_000n); // 3/10 * 10 = 3
-      expect(shares[2]).toBe(5_000_000n); // 5/10 * 10 = 5
+      expect(shares[0]).toBe(2_000_000_000n); // 2/10 * 10 = 2
+      expect(shares[1]).toBe(3_000_000_000n); // 3/10 * 10 = 3
+      expect(shares[2]).toBe(5_000_000_000n); // 5/10 * 10 = 5
 
       // Verify sum
       const sum = shares.reduce((acc, s) => acc + s, 0n);
@@ -147,55 +150,55 @@ describe('Fixed-Point Arithmetic', () => {
     });
 
     it('should distribute remainder deterministically', () => {
-      const weights = [1_000_000n, 1_000_000n, 1_000_000n]; // Equal weights
-      const pool = 10_000_000n; // 10 tokens, not evenly divisible by 3
+      const weights = [1_000_000_000n, 1_000_000_000n, 1_000_000_000n]; // Equal weights
+      const pool = 10_000_000_000n; // 10 tokens, not evenly divisible by 3
 
       const shares = distributeProportional(weights, pool);
 
-      // Each gets floor(10/3) = 3.333... = 3 tokens
-      // Remainder of 1 token goes to one contributor (deterministically)
+      // Each gets floor(10/3) = 3.333... tokens
+      // Remainder goes to one contributor (deterministically)
       expect(shares[0] + shares[1] + shares[2]).toBe(pool);
-      expect(shares.filter(s => s === 3_333_334n).length).toBe(1); // One gets extra
-      expect(shares.filter(s => s === 3_333_333n).length).toBe(2);
+      expect(shares.filter(s => s === 3_333_333_334n).length).toBe(1); // One gets extra
+      expect(shares.filter(s => s === 3_333_333_333n).length).toBe(2);
     });
 
     it('should handle zero pool', () => {
-      const weights = [1_000_000n, 2_000_000n, 3_000_000n];
+      const weights = [1_000_000_000n, 2_000_000_000n, 3_000_000_000n];
       const shares = distributeProportional(weights, 0n);
 
       expect(shares).toEqual([0n, 0n, 0n]);
     });
 
     it('should handle empty weights', () => {
-      const shares = distributeProportional([], 1_000_000n);
+      const shares = distributeProportional([], 1_000_000_000n);
       expect(shares).toEqual([]);
     });
 
     it('should handle zero total weight with equal distribution', () => {
       const weights = [0n, 0n, 0n];
-      const pool = 9_000_000n; // 9 tokens
+      const pool = 9_000_000_000n; // 9 tokens
       const shares = distributeProportional(weights, pool);
 
       // Should distribute equally: 3, 3, 3
-      expect(shares).toEqual([3_000_000n, 3_000_000n, 3_000_000n]);
+      expect(shares).toEqual([3_000_000_000n, 3_000_000_000n, 3_000_000_000n]);
     });
 
     it('should handle zero total weight with remainder', () => {
       const weights = [0n, 0n, 0n];
-      const pool = 10_000_000n; // 10 tokens (not divisible by 3)
+      const pool = 10_000_000_000n; // 10 tokens (not divisible by 3)
       const shares = distributeProportional(weights, pool);
 
-      // floor(10/3) = 3, remainder = 1
+      // floor(10e9/3) = 3_333_333_333, remainder = 1
       // First contributor gets the remainder
-      expect(shares[0]).toBe(3_333_334n);
-      expect(shares[1]).toBe(3_333_333n);
-      expect(shares[2]).toBe(3_333_333n);
+      expect(shares[0]).toBe(3_333_333_334n);
+      expect(shares[1]).toBe(3_333_333_333n);
+      expect(shares[2]).toBe(3_333_333_333n);
       expect(shares.reduce((sum, s) => sum + s, 0n)).toBe(pool);
     });
 
     it('should be deterministic', () => {
-      const weights = [1_234_567n, 8_765_432n, 5_555_555n];
-      const pool = 22_000_000_000n; // 22,000 tokens
+      const weights = [1_234_567_000n, 8_765_432_000n, 5_555_555_000n];
+      const pool = 22_000_000_000_000n; // 22,000 tokens
 
       const shares1 = distributeProportional(weights, pool);
       const shares2 = distributeProportional(weights, pool);
@@ -205,9 +208,9 @@ describe('Fixed-Point Arithmetic', () => {
       expect(shares2).toEqual(shares3);
     });
 
-    it('should never lose microunits (exact sum)', () => {
-      const weights = [1_111_111n, 2_222_222n, 3_333_333n, 4_444_444n];
-      const pool = 17_600_000_000n; // 17,600 tokens
+    it('should never lose nanounits (exact sum)', () => {
+      const weights = [1_111_111_000n, 2_222_222_000n, 3_333_333_000n, 4_444_444_000n];
+      const pool = 17_600_000_000_000n; // 17,600 tokens
 
       const shares = distributeProportional(weights, pool);
       const sum = shares.reduce((acc, s) => acc + s, 0n);
@@ -216,8 +219,8 @@ describe('Fixed-Point Arithmetic', () => {
     });
 
     it('should distribute large pools correctly', () => {
-      const weights = [100_000_000n, 200_000_000n, 300_000_000n];
-      const pool = 1_000_000_000_000n; // 1 million tokens
+      const weights = [100_000_000_000n, 200_000_000_000n, 300_000_000_000n];
+      const pool = 1_000_000_000_000_000n; // 1 million tokens
 
       const shares = distributeProportional(weights, pool);
       const sum = shares.reduce((acc, s) => acc + s, 0n);
@@ -227,15 +230,15 @@ describe('Fixed-Point Arithmetic', () => {
     });
 
     it('should handle single contributor', () => {
-      const weights = [5_000_000n];
-      const pool = 10_000_000n;
+      const weights = [5_000_000_000n];
+      const pool = 10_000_000_000n;
 
       const shares = distributeProportional(weights, pool);
-      expect(shares).toEqual([10_000_000n]); // Gets entire pool
+      expect(shares).toEqual([10_000_000_000n]); // Gets entire pool
     });
 
     it('should throw on negative pool', () => {
-      const weights = [1_000_000n];
+      const weights = [1_000_000_000n];
       expect(() => distributeProportional(weights, -1n)).toThrow(
         'Pool amount cannot be negative'
       );
@@ -245,11 +248,11 @@ describe('Fixed-Point Arithmetic', () => {
   describe('distributeSqrtWeighted', () => {
     it('should distribute using sqrt weights', () => {
       const points = [
-        toMicroUnits(100), // sqrt = 10
-        toMicroUnits(400), // sqrt = 20
-        toMicroUnits(900), // sqrt = 30
+        toNanoUnits(100), // sqrt = 10
+        toNanoUnits(400), // sqrt = 20
+        toNanoUnits(900), // sqrt = 30
       ]; // Total sqrt weight = 60
-      const pool = toMicroUnits(6000); // 6000 tokens
+      const pool = toNanoUnits(6000); // 6000 tokens
 
       const shares = distributeSqrtWeighted(points, pool);
 
@@ -264,8 +267,8 @@ describe('Fixed-Point Arithmetic', () => {
     });
 
     it('should handle zero points', () => {
-      const points = [toMicroUnits(0), toMicroUnits(100), toMicroUnits(400)];
-      const pool = toMicroUnits(1000);
+      const points = [toNanoUnits(0), toNanoUnits(100), toNanoUnits(400)];
+      const pool = toNanoUnits(1000);
 
       const shares = distributeSqrtWeighted(points, pool);
 
@@ -277,8 +280,8 @@ describe('Fixed-Point Arithmetic', () => {
     });
 
     it('should be deterministic', () => {
-      const points = [toMicroUnits(123), toMicroUnits(456), toMicroUnits(789)];
-      const pool = toMicroUnits(10000);
+      const points = [toNanoUnits(123), toNanoUnits(456), toNanoUnits(789)];
+      const pool = toNanoUnits(10000);
 
       const shares1 = distributeSqrtWeighted(points, pool);
       const shares2 = distributeSqrtWeighted(points, pool);
@@ -290,43 +293,43 @@ describe('Fixed-Point Arithmetic', () => {
   });
 
   describe('formatTokens', () => {
-    it('should format with 6 decimals by default', () => {
-      expect(formatTokens(1_234_567n)).toBe('1.234567');
-      expect(formatTokens(1_000_000n)).toBe('1.000000');
-      expect(formatTokens(500_000n)).toBe('0.500000');
+    it('should format with 9 decimals by default', () => {
+      expect(formatTokens(1_234_567_890n)).toBe('1.234567890');
+      expect(formatTokens(1_000_000_000n)).toBe('1.000000000');
+      expect(formatTokens(500_000_000n)).toBe('0.500000000');
     });
 
     it('should format with custom decimals', () => {
-      expect(formatTokens(1_234_567n, 2)).toBe('1.23');
-      expect(formatTokens(1_234_567n, 4)).toBe('1.2346');
-      expect(formatTokens(1_000_000n, 0)).toBe('1');
+      expect(formatTokens(1_234_567_890n, 2)).toBe('1.23');
+      expect(formatTokens(1_234_567_890n, 4)).toBe('1.2346');
+      expect(formatTokens(1_000_000_000n, 0)).toBe('1');
     });
 
     it('should handle zero', () => {
-      expect(formatTokens(0n)).toBe('0.000000');
+      expect(formatTokens(0n)).toBe('0.000000000');
     });
 
     it('should handle large numbers', () => {
-      expect(formatTokens(22_000_000_000n, 2)).toBe('22000.00');
+      expect(formatTokens(22_000_000_000_000n, 2)).toBe('22000.00');
     });
   });
 
   describe('verifyDistribution', () => {
     it('should verify valid distribution', () => {
-      const shares = [1_000_000n, 2_000_000n, 3_000_000n];
-      const total = 6_000_000n;
+      const shares = [1_000_000_000n, 2_000_000_000n, 3_000_000_000n];
+      const total = 6_000_000_000n;
       expect(verifyDistribution(shares, total)).toBe(true);
     });
 
     it('should detect sum mismatch', () => {
-      const shares = [1_000_000n, 2_000_000n, 3_000_000n];
-      const total = 7_000_000n; // Wrong total
+      const shares = [1_000_000_000n, 2_000_000_000n, 3_000_000_000n];
+      const total = 7_000_000_000n; // Wrong total
       expect(verifyDistribution(shares, total)).toBe(false);
     });
 
     it('should detect negative shares', () => {
-      const shares = [1_000_000n, -1_000_000n, 2_000_000n];
-      const total = 2_000_000n;
+      const shares = [1_000_000_000n, -1_000_000_000n, 2_000_000_000n];
+      const total = 2_000_000_000n;
       expect(verifyDistribution(shares, total)).toBe(false);
     });
 
@@ -343,12 +346,12 @@ describe('Fixed-Point Arithmetic', () => {
       const contributor3Points = 10; // Charlie
 
       const points = [
-        toMicroUnits(contributor1Points),
-        toMicroUnits(contributor2Points),
-        toMicroUnits(contributor3Points),
+        toNanoUnits(contributor1Points),
+        toNanoUnits(contributor2Points),
+        toNanoUnits(contributor3Points),
       ];
 
-      const performancePool = toMicroUnits(17600); // 80% of 22,000
+      const performancePool = toNanoUnits(17600); // 80% of 22,000
 
       const shares = distributeSqrtWeighted(points, performancePool);
 
@@ -374,10 +377,10 @@ describe('Fixed-Point Arithmetic', () => {
     it('should handle 100 contributors efficiently', () => {
       const points: bigint[] = [];
       for (let i = 0; i < 100; i++) {
-        points.push(toMicroUnits(Math.floor(Math.random() * 1000) + 100));
+        points.push(toNanoUnits(Math.floor(Math.random() * 1000) + 100));
       }
 
-      const pool = toMicroUnits(22000);
+      const pool = toNanoUnits(22000);
 
       const start = Date.now();
       const shares = distributeSqrtWeighted(points, pool);
@@ -387,20 +390,20 @@ describe('Fixed-Point Arithmetic', () => {
       expect(verifyDistribution(shares, pool)).toBe(true);
     });
 
-    it('should never lose microunits over multiple distributions', () => {
-      const totalEmissions = toMicroUnits(22000);
+    it('should never lose nanounits over multiple distributions', () => {
+      const totalEmissions = toNanoUnits(22000);
       const basePool = (totalEmissions * 20n) / 100n; // 20%
       const performancePool = (totalEmissions * 80n) / 100n; // 80%
 
       // Base pool: 3 contributors
       const baseShares = distributeProportional(
-        [1_000_000n, 1_000_000n, 1_000_000n], // Equal weight
+        [1_000_000_000n, 1_000_000_000n, 1_000_000_000n], // Equal weight
         basePool
       );
 
       // Performance pool: 3 contributors
       const perfShares = distributeSqrtWeighted(
-        [toMicroUnits(100), toMicroUnits(400), toMicroUnits(900)],
+        [toNanoUnits(100), toNanoUnits(400), toNanoUnits(900)],
         performancePool
       );
 

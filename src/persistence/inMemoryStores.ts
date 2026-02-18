@@ -4,7 +4,12 @@ import {
   IStateStore,
   IAssignmentStore,
   ISubmissionStore,
+  IOperationalStore,
+  IBalanceLedger,
   StateSnapshot,
+  DayLifecycleData,
+  BalanceRow,
+  BalanceHistoryRow,
 } from './interfaces';
 import { NetworkState, BlockSubmission } from '../services/serviceTypes';
 import { BlockAssignment } from '../types';
@@ -143,6 +148,123 @@ export class InMemorySubmissionStore implements ISubmissionStore {
 
   clear(): void {
     this.submissions.clear();
+  }
+}
+
+export class InMemoryOperationalStore implements IOperationalStore {
+  private nodeKeys = new Map<string, string>();
+  private devices = new Map<string, unknown>();
+  private accountDevices = new Map<string, string[]>();
+  private dayPhase: DayLifecycleData | undefined;
+
+  saveNodeKeys(keys: Map<string, string>): void {
+    this.nodeKeys = new Map(keys);
+  }
+
+  loadNodeKeys(): Map<string, string> {
+    return new Map(this.nodeKeys);
+  }
+
+  saveDevices(d: Map<string, unknown>, ad: Map<string, string[]>): void {
+    this.devices = new Map(d);
+    this.accountDevices = new Map(ad);
+  }
+
+  loadDevices(): { devices: Map<string, unknown>; accountDevices: Map<string, string[]> } {
+    return {
+      devices: new Map(this.devices),
+      accountDevices: new Map(this.accountDevices),
+    };
+  }
+
+  saveDayPhase(data: DayLifecycleData): void {
+    this.dayPhase = data;
+  }
+
+  loadDayPhase(): DayLifecycleData | undefined {
+    return this.dayPhase;
+  }
+
+  clearDayPhase(): void {
+    this.dayPhase = undefined;
+  }
+
+  clear(): void {
+    this.nodeKeys.clear();
+    this.devices.clear();
+    this.accountDevices.clear();
+    this.dayPhase = undefined;
+  }
+}
+
+export class InMemoryBalanceLedger implements IBalanceLedger {
+  private balances = new Map<string, {
+    balanceMicro: bigint;
+    totalEarnedMicro: bigint;
+    lastRewardDay: string | null;
+    updatedAt: string;
+  }>();
+  private history: BalanceHistoryRow[] = [];
+
+  getBalance(accountId: string): BalanceRow | null {
+    const entry = this.balances.get(accountId);
+    if (!entry) return null;
+    return { accountId, ...entry };
+  }
+
+  creditRewards(dayId: string, rewards: Array<{ accountId: string; amountMicro: bigint }>): void {
+    const timestamp = new Date().toISOString();
+    for (const r of rewards) {
+      const existing = this.balances.get(r.accountId);
+      const prevBalance = existing?.balanceMicro ?? 0n;
+      const prevEarned = existing?.totalEarnedMicro ?? 0n;
+      const newBalance = prevBalance + r.amountMicro;
+      const newEarned = prevEarned + r.amountMicro;
+
+      this.balances.set(r.accountId, {
+        balanceMicro: newBalance,
+        totalEarnedMicro: newEarned,
+        lastRewardDay: dayId,
+        updatedAt: timestamp,
+      });
+
+      this.history.unshift({
+        accountId: r.accountId,
+        dayId,
+        amountMicro: r.amountMicro,
+        balanceAfterMicro: newBalance,
+        entryType: 'REWARD',
+        timestamp,
+      });
+    }
+  }
+
+  getHistory(accountId: string, limit = 30): BalanceHistoryRow[] {
+    return this.history.filter(h => h.accountId === accountId).slice(0, limit);
+  }
+
+  getLeaderboard(limit = 20): BalanceRow[] {
+    return Array.from(this.balances.entries())
+      .map(([accountId, entry]) => ({ accountId, ...entry }))
+      .sort((a, b) => {
+        if (b.totalEarnedMicro > a.totalEarnedMicro) return 1;
+        if (b.totalEarnedMicro < a.totalEarnedMicro) return -1;
+        return 0;
+      })
+      .slice(0, limit);
+  }
+
+  getTotalSupply(): bigint {
+    let total = 0n;
+    for (const entry of this.balances.values()) {
+      total += entry.balanceMicro;
+    }
+    return total;
+  }
+
+  clear(): void {
+    this.balances.clear();
+    this.history = [];
   }
 }
 

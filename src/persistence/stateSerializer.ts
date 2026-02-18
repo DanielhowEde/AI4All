@@ -1,11 +1,11 @@
 /**
- * NetworkState serializer for SQLite storage.
+ * NetworkState serializer for persistent storage.
  * Handles Map → entries array, Set → array, Date → ISO string
  * so JSON.stringify round-trips correctly.
  */
 
-import { NetworkState, BlockSubmission, AuditEntry } from '../../services/serviceTypes';
-import { Contributor, CompletedBlock } from '../../types';
+import { NetworkState, AuditEntry } from '../services/serviceTypes';
+import { Contributor, CompletedBlock } from '../types';
 
 // ── Serializable shapes ────────────────────────────────────────────
 
@@ -130,35 +130,5 @@ function deserializeAuditEntry(se: SerializedAuditEntry): AuditEntry {
     eventType: se.eventType as AuditEntry['eventType'],
     accountId: se.accountId,
     details: se.details,
-  };
-}
-
-// ── Submission serializers ─────────────────────────────────────────
-
-export function serializeSubmission(s: BlockSubmission): Record<string, unknown> {
-  return {
-    contributorId: s.contributorId,
-    blockId: s.blockId,
-    blockType: s.blockType,
-    resourceUsage: s.resourceUsage,
-    difficultyMultiplier: s.difficultyMultiplier,
-    validationPassed: s.validationPassed,
-    canaryAnswerCorrect: s.canaryAnswerCorrect,
-    timestamp: s.timestamp instanceof Date ? s.timestamp.toISOString() : String(s.timestamp),
-  };
-}
-
-export function deserializeSubmission(row: Record<string, unknown>): BlockSubmission {
-  return {
-    contributorId: row.contributor_id as string,
-    blockId: row.block_id as string,
-    blockType: row.block_type as BlockSubmission['blockType'],
-    resourceUsage: row.resource_usage as number,
-    difficultyMultiplier: row.difficulty_multiplier as number,
-    validationPassed: (row.validation_passed as number) === 1,
-    canaryAnswerCorrect: row.canary_answer_correct != null
-      ? (row.canary_answer_correct as number) === 1
-      : undefined,
-    timestamp: new Date(row.timestamp as string),
   };
 }

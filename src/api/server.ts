@@ -1,23 +1,21 @@
 import { createApp } from './app';
 import { createApiState, ApiState } from './state';
 import { createInMemoryStores } from '../persistence/inMemoryStores';
-import { createSqliteStores } from '../persistence/sqlite';
+import { createFileStores } from '../persistence/file';
 import { restoreApiState } from './restore';
 import { DayScheduler } from './scheduler';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
-const USE_SQLITE = process.env.STORE_BACKEND !== 'memory';
+const USE_PERSISTENT = process.env.STORE_BACKEND !== 'memory';
 
 async function main() {
   let state: ApiState;
-  let closeFn: (() => void) | undefined;
 
-  if (USE_SQLITE) {
-    const dbPath = process.env.DB_PATH;
-    const sqliteStores = createSqliteStores(dbPath);
-    closeFn = () => sqliteStores.db.close();
+  if (USE_PERSISTENT) {
+    const dataDir = process.env.DATA_DIR;
+    const fileStores = await createFileStores(dataDir);
 
-    state = await restoreApiState(sqliteStores);
+    state = await restoreApiState(fileStores);
     console.log(
       `State restored: day ${state.networkState.dayNumber}, phase ${state.dayPhase}, ` +
       `${state.networkState.contributors.size} contributors, ${state.nodeKeys.size} nodeKeys`
@@ -43,7 +41,7 @@ async function main() {
 
   const server = app.listen(PORT, () => {
     console.log(`AI4All API server running on port ${PORT}`);
-    console.log(`Store backend: ${USE_SQLITE ? 'SQLite' : 'in-memory'}`);
+    console.log(`Store backend: ${USE_PERSISTENT ? 'file' : 'in-memory'}`);
     console.log(`Admin key: ${process.env.ADMIN_KEY ? '[SET]' : 'test-admin-key (default)'}`);
     if (scheduler) console.log('Day scheduler: enabled');
     console.log(`Health check: http://localhost:${PORT}/health`);
@@ -54,7 +52,6 @@ async function main() {
     console.log('Shutting down...');
     scheduler?.stop();
     server.close(() => {
-      closeFn?.();
       console.log('Server stopped.');
       process.exit(0);
     });

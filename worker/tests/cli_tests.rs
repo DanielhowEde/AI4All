@@ -125,7 +125,7 @@ fn test_benchmark_default() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Benchmark Results"))
-        .stdout(predicate::str::contains("Iterations: 3")); // Default
+        .stdout(predicate::str::contains("3 iterations")); // Default
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn test_benchmark_custom_iterations() {
         .arg("5")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Iterations: 5"));
+        .stdout(predicate::str::contains("5 iterations"));
 }
 
 // ─────────────────────────────────────────────────────────────────

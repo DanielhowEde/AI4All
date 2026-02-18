@@ -38,6 +38,12 @@ pub struct WorkerConfig {
 
     /// Data storage paths
     pub storage: StorageSettings,
+
+    /// Peer-to-peer communication settings
+    pub peer: PeerSettings,
+
+    /// OpenAI-compatible API backend settings
+    pub openai: OpenAiSettings,
 }
 
 /// Worker identity settings
@@ -55,6 +61,14 @@ pub struct WorkerSettings {
     /// Worker tags for filtering assignments
     #[serde(default)]
     pub tags: Vec<String>,
+
+    /// Account ID for coordinator registration (from POST /nodes/register)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account_id: Option<String>,
+
+    /// Node key for authentication (returned by POST /nodes/register)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_key: Option<String>,
 }
 
 /// Coordinator connection settings
@@ -156,6 +170,52 @@ pub struct GpuSettings {
     pub force_backend: Option<String>,
 }
 
+/// Peer-to-peer communication settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PeerSettings {
+    /// Enable peer-to-peer mesh networking
+    pub enabled: bool,
+
+    /// TCP listen port for peer connections (0 = auto-assign)
+    pub listen_port: u16,
+
+    /// Maximum number of peer connections
+    pub max_peers: usize,
+
+    /// Ping interval in milliseconds for peer health checks
+    pub ping_interval_ms: u64,
+
+    /// Timeout in milliseconds before a peer is considered stale
+    pub stale_timeout_ms: u64,
+
+    /// Auto-connect to discovered peers
+    pub auto_connect: bool,
+}
+
+/// OpenAI-compatible API backend settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OpenAiSettings {
+    /// Enable OpenAI-compatible API backend
+    pub enabled: bool,
+
+    /// API base URL (e.g., "https://api.openai.com/v1", "http://localhost:11434/v1")
+    pub base_url: String,
+
+    /// API key (empty string for local servers like Ollama)
+    pub api_key: String,
+
+    /// Default model identifier
+    pub default_model: String,
+
+    /// Request timeout in seconds
+    pub timeout_secs: u64,
+
+    /// Maximum retries on transient failures
+    pub max_retries: u32,
+}
+
 /// Plugin system settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -188,6 +248,8 @@ impl Default for WorkerConfig {
             plugins: PluginSettings::default(),
             logging: LoggingSettings::default(),
             storage: StorageSettings::default(),
+            peer: PeerSettings::default(),
+            openai: OpenAiSettings::default(),
         }
     }
 }
@@ -198,6 +260,8 @@ impl Default for WorkerSettings {
             id: None,
             name: None,
             tags: vec![],
+            account_id: None,
+            node_key: None,
         }
     }
 }
@@ -256,6 +320,32 @@ impl Default for GpuSettings {
             n_gpu_layers: None,
             vendor_priority: vec![],
             force_backend: None,
+        }
+    }
+}
+
+impl Default for PeerSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            listen_port: 0, // Auto-assign
+            max_peers: 32,
+            ping_interval_ms: 15000,
+            stale_timeout_ms: 60000,
+            auto_connect: true,
+        }
+    }
+}
+
+impl Default for OpenAiSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            base_url: "http://localhost:11434/v1".to_string(),
+            api_key: String::new(),
+            default_model: "llama3".to_string(),
+            timeout_secs: 120,
+            max_retries: 2,
         }
     }
 }
@@ -353,6 +443,12 @@ impl WorkerConfig {
         if let Ok(val) = std::env::var("AI4ALL_WORKER_NAME") {
             self.worker.name = Some(val);
         }
+        if let Ok(val) = std::env::var("AI4ALL_ACCOUNT_ID") {
+            self.worker.account_id = Some(val);
+        }
+        if let Ok(val) = std::env::var("AI4ALL_NODE_KEY") {
+            self.worker.node_key = Some(val);
+        }
 
         // Coordinator settings
         if let Ok(val) = std::env::var("AI4ALL_COORDINATOR_URL") {
@@ -432,6 +528,40 @@ impl WorkerConfig {
         }
         if let Ok(val) = std::env::var("AI4ALL_GPU_BACKEND") {
             self.gpu.force_backend = Some(val);
+        }
+
+        // Peer settings
+        if let Ok(val) = std::env::var("AI4ALL_PEER_ENABLED") {
+            self.peer.enabled = val.to_lowercase() == "true" || val == "1";
+        }
+        if let Ok(val) = std::env::var("AI4ALL_PEER_PORT") {
+            if let Ok(n) = val.parse() {
+                self.peer.listen_port = n;
+            }
+        }
+        if let Ok(val) = std::env::var("AI4ALL_PEER_MAX_PEERS") {
+            if let Ok(n) = val.parse() {
+                self.peer.max_peers = n;
+            }
+        }
+
+        // OpenAI settings
+        if let Ok(val) = std::env::var("AI4ALL_OPENAI_ENABLED") {
+            self.openai.enabled = val.to_lowercase() == "true" || val == "1";
+        }
+        if let Ok(val) = std::env::var("AI4ALL_OPENAI_BASE_URL") {
+            self.openai.base_url = val;
+        }
+        if let Ok(val) = std::env::var("AI4ALL_OPENAI_API_KEY") {
+            self.openai.api_key = val;
+        }
+        if let Ok(val) = std::env::var("AI4ALL_OPENAI_MODEL") {
+            self.openai.default_model = val;
+        }
+        if let Ok(val) = std::env::var("AI4ALL_OPENAI_TIMEOUT_SECS") {
+            if let Ok(n) = val.parse() {
+                self.openai.timeout_secs = n;
+            }
         }
 
         // Plugin settings
@@ -621,6 +751,44 @@ model_dir = "~/.ai4all/worker/models"
 
 # Temporary files directory
 temp_dir = "~/.ai4all/worker/temp"
+
+[peer]
+# Enable peer-to-peer mesh networking
+enabled = true
+
+# TCP listen port for peer connections (0 = auto-assign)
+listen_port = 0
+
+# Maximum number of peer connections
+max_peers = 32
+
+# Ping interval in milliseconds
+ping_interval_ms = 15000
+
+# Timeout before a peer is considered stale (milliseconds)
+stale_timeout_ms = 60000
+
+# Auto-connect to discovered peers
+auto_connect = true
+
+[openai]
+# Enable OpenAI-compatible API backend
+enabled = true
+
+# API base URL (OpenAI, Ollama, vLLM, LM Studio, etc.)
+base_url = "http://localhost:11434/v1"
+
+# API key (leave empty for local servers like Ollama)
+api_key = ""
+
+# Default model identifier
+default_model = "llama3"
+
+# Request timeout in seconds
+timeout_secs = 120
+
+# Maximum retries on transient failures
+max_retries = 2
 "#.to_string()
 }
 

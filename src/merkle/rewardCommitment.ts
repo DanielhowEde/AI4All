@@ -33,18 +33,18 @@ export interface RewardProof {
 }
 
 /**
- * Convert tokens to microunits (6 decimal places)
+ * Convert tokens to nanounits (9 decimal places)
  * Matches the fixed-point arithmetic in rewardDistributionFixed.ts
  */
 export function toMicrounits(tokens: number): bigint {
-  return BigInt(Math.round(tokens * 1_000_000));
+  return BigInt(Math.round(tokens * 1_000_000_000));
 }
 
 /**
- * Convert microunits back to tokens
+ * Convert nanounits back to tokens
  */
 export function fromMicrounits(microunits: bigint): number {
-  return Number(microunits) / 1_000_000;
+  return Number(microunits) / 1_000_000_000;
 }
 
 /**
@@ -234,16 +234,16 @@ export function rewardsToEntries(
 }
 
 /**
- * Convert microunits to string decimal representation
+ * Convert nanounits to string decimal representation
  * Returns exact decimal string without floating point errors
- * e.g., 1234567n -> "1.234567"
+ * e.g., 1234567890n -> "1.23456789"
  */
 function microunitsToDecimalString(microunits: bigint): string {
   const isNegative = microunits < 0n;
   const abs = isNegative ? -microunits : microunits;
-  const str = abs.toString().padStart(7, '0'); // Ensure at least 7 chars (1 + 6 decimals)
-  const intPart = str.slice(0, -6) || '0';
-  const decPart = str.slice(-6);
+  const str = abs.toString().padStart(10, '0'); // Ensure at least 10 chars (1 + 9 decimals)
+  const intPart = str.slice(0, -9) || '0';
+  const decPart = str.slice(-9);
   // Trim trailing zeros but keep at least one decimal place
   const trimmedDec = decPart.replace(/0+$/, '') || '0';
   return `${isNegative ? '-' : ''}${intPart}.${trimmedDec}`;

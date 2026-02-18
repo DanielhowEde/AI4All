@@ -41,3 +41,58 @@ export interface ISubmissionStore {
   listByDay(dayId: string): Promise<BlockSubmission[]>;
   listByNode(dayId: string, nodeId: string): Promise<BlockSubmission[]>;
 }
+
+// ── Operational Store (replaces SqliteKvStore) ──────────────────────
+
+export interface DayLifecycleData {
+  dayPhase: string;
+  currentDayId: string | null;
+  currentDaySeed: number | null;
+  rosterAccountIds: string[];
+  canaryBlockIds: string[];
+}
+
+export interface IOperationalStore {
+  saveNodeKeys(nodeKeys: Map<string, string>): void;
+  loadNodeKeys(): Map<string, string>;
+
+  saveDevices(
+    devices: Map<string, unknown>,
+    accountDevices: Map<string, string[]>
+  ): void;
+  loadDevices(): {
+    devices: Map<string, unknown>;
+    accountDevices: Map<string, string[]>;
+  };
+
+  saveDayPhase(data: DayLifecycleData): void;
+  loadDayPhase(): DayLifecycleData | undefined;
+  clearDayPhase(): void;
+}
+
+// ── Balance Ledger (replaces SqliteBalanceStore) ────────────────────
+
+export interface BalanceRow {
+  accountId: string;
+  balanceMicro: bigint;
+  totalEarnedMicro: bigint;
+  lastRewardDay: string | null;
+  updatedAt: string;
+}
+
+export interface BalanceHistoryRow {
+  accountId: string;
+  dayId: string;
+  amountMicro: bigint;
+  balanceAfterMicro: bigint;
+  entryType: string;
+  timestamp: string;
+}
+
+export interface IBalanceLedger {
+  getBalance(accountId: string): BalanceRow | null;
+  creditRewards(dayId: string, rewards: Array<{ accountId: string; amountMicro: bigint }>): void;
+  getHistory(accountId: string, limit?: number): BalanceHistoryRow[];
+  getLeaderboard(limit?: number): BalanceRow[];
+  getTotalSupply(): bigint;
+}

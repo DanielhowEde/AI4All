@@ -321,6 +321,9 @@ pub struct BackendConfig {
 
     /// Seed for random number generation
     pub seed: Option<u64>,
+
+    /// OpenAI-compatible API configuration (used by OpenAi backend type)
+    pub openai: Option<super::OpenAiConfig>,
 }
 
 impl Default for BackendConfig {
@@ -333,6 +336,7 @@ impl Default for BackendConfig {
             use_mmap: true,
             use_mlock: false,
             seed: None,
+            openai: None,
         }
     }
 }

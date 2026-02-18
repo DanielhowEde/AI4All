@@ -257,6 +257,85 @@ export interface PairingCompleteResponse {
 }
 
 // ============================================================================
+// Peer Discovery
+// ============================================================================
+
+export interface PeerInfo {
+  workerId: string;
+  accountId: string;
+  listenAddr: string;         // "host:port" for direct TCP P2P
+  capabilities: WorkerCapabilities;
+  lastSeen: string;           // ISO timestamp
+}
+
+export interface WorkerCapabilities {
+  supportedTasks: string[];
+  maxConcurrentTasks: number;
+  availableMemoryMb: number;
+  gpuAvailable: boolean;
+  gpuDevice?: string;
+  gpuMemoryMb?: number;
+  maxContextLength: number;
+  workerVersion: string;
+}
+
+export interface PeerRegisterRequest {
+  accountId: string;
+  nodeKey: string;
+  listenAddr: string;
+  capabilities?: WorkerCapabilities;
+}
+
+export interface PeerRegisterResponse {
+  success: boolean;
+  workerId: string;
+}
+
+export interface PeerDirectoryResponse {
+  success: boolean;
+  peers: PeerInfo[];
+}
+
+// ============================================================================
+// Work Groups
+// ============================================================================
+
+export type GroupPurposeType = 'MODEL_SHARD' | 'TASK_PIPELINE' | 'GENERAL';
+
+export interface GroupMemberInfo {
+  workerId: string;
+  role: 'coordinator' | 'member';
+  shardIndex?: number;
+  pipelineStage?: number;
+}
+
+export interface WorkGroupInfo {
+  groupId: string;
+  purpose: GroupPurposeType;
+  modelId?: string;
+  totalShards?: number;
+  pipelineId?: string;
+  members: GroupMemberInfo[];
+  createdAt: string;          // ISO timestamp
+}
+
+export interface GroupCreateRequest {
+  purpose: GroupPurposeType;
+  modelId?: string;
+  workerIds: string[];        // Workers to include
+}
+
+export interface GroupCreateResponse {
+  success: boolean;
+  group: WorkGroupInfo;
+}
+
+export interface GroupListResponse {
+  success: boolean;
+  groups: WorkGroupInfo[];
+}
+
+// ============================================================================
 // Error Codes
 // ============================================================================
 
@@ -281,7 +360,134 @@ export const ErrorCodes = {
   PAIRING_RATE_LIMITED: 'PAIRING_RATE_LIMITED',
   DEVICE_NOT_FOUND: 'DEVICE_NOT_FOUND',
   DEVICE_SIGNATURE_INVALID: 'DEVICE_SIGNATURE_INVALID',
+  PEER_NOT_FOUND: 'PEER_NOT_FOUND',
+  PEER_ALREADY_REGISTERED: 'PEER_ALREADY_REGISTERED',
+  GROUP_NOT_FOUND: 'GROUP_NOT_FOUND',
+  GROUP_MEMBER_NOT_FOUND: 'GROUP_MEMBER_NOT_FOUND',
+  TASK_NOT_FOUND: 'TASK_NOT_FOUND',
+  TASK_ALREADY_ASSIGNED: 'TASK_ALREADY_ASSIGNED',
+  TASK_ALREADY_COMPLETED: 'TASK_ALREADY_COMPLETED',
+  TASK_EXPIRED: 'TASK_EXPIRED',
+  WORKER_NOT_REGISTERED: 'WORKER_NOT_REGISTERED',
+  NO_PENDING_TASKS: 'NO_PENDING_TASKS',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
+
+// ============================================================================
+// On-Demand Task System
+// ============================================================================
+
+export type TaskStatus = 'PENDING' | 'ASSIGNED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'EXPIRED';
+
+export type TaskPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL';
+
+export interface TaskGenerationParams {
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  stop_sequences?: string[];
+  seed?: number;
+}
+
+export interface TaskTokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface TaskRecord {
+  taskId: string;
+  clientId: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+
+  // Request payload
+  prompt: string;
+  systemPrompt?: string;
+  model: string;
+  params: TaskGenerationParams;
+
+  // Assignment tracking
+  assignedWorkerId?: string;
+  assignedAt?: string;
+
+  // Result
+  output?: string;
+  finishReason?: string;
+  tokenUsage?: TaskTokenUsage;
+  executionTimeMs?: number;
+  error?: string;
+
+  // Economic layer linkage
+  blockId?: string;
+
+  // Timestamps
+  createdAt: string;
+  completedAt?: string;
+  expiresAt: string;
+}
+
+// Task: Submit (Client → Server)
+export interface TaskSubmitRequest {
+  clientId: string;
+  prompt: string;
+  systemPrompt?: string;
+  model?: string;
+  params?: TaskGenerationParams;
+  priority?: TaskPriority;
+}
+
+export interface TaskSubmitResponse {
+  success: boolean;
+  taskId: string;
+  status: TaskStatus;
+  expiresAt: string;
+}
+
+// Task: Pending (Worker polls)
+export interface TaskPendingResponse {
+  success: boolean;
+  tasks: Array<{
+    taskId: string;
+    prompt: string;
+    systemPrompt?: string;
+    model: string;
+    params: TaskGenerationParams;
+    priority: TaskPriority;
+    createdAt: string;
+    expiresAt: string;
+  }>;
+}
+
+// Task: Complete (Worker → Server)
+export interface TaskCompleteRequest {
+  workerId: string;
+  taskId: string;
+  output: string;
+  finishReason: string;
+  tokenUsage?: TaskTokenUsage;
+  executionTimeMs?: number;
+  error?: string;
+}
+
+export interface TaskCompleteResponse {
+  success: boolean;
+  taskId: string;
+  blockId?: string;
+  /** Nanounits credited (1 AI token = 1 nanounit = 0.000000001 crypto tokens) */
+  rewardNano?: string;
+}
+
+// Task: Result (Client retrieves)
+export interface TaskResultResponse {
+  success: boolean;
+  task: TaskRecord;
+}
+
+// Task: List (Client lists their tasks)
+export interface TaskListResponse {
+  success: boolean;
+  tasks: TaskRecord[];
+}

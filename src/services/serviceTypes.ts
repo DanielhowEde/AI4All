@@ -50,6 +50,12 @@ export interface BlockSubmission {
   validationPassed: boolean;
   canaryAnswerCorrect?: boolean;
   timestamp: Date;
+  /** AI token usage from the inference provider (recorded for audit) */
+  tokenUsage?: {
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
+  };
 }
 
 export interface SubmissionResult {

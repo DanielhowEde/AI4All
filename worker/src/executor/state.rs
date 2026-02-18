@@ -17,6 +17,23 @@ use crate::types::TaskType;
 // Task Execution State
 // ─────────────────────────────────────────────────────────────────
 
+/// Where a task originated from
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TaskSource {
+    /// Task assigned by the central coordinator (WebSocket)
+    Coordinator,
+    /// Task received from a peer worker
+    Peer { worker_id: String },
+    /// Task polled from the coordinator HTTP task API
+    HttpPolled,
+}
+
+impl Default for TaskSource {
+    fn default() -> Self {
+        TaskSource::Coordinator
+    }
+}
+
 /// State of a task being executed
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskState {
@@ -68,6 +85,9 @@ pub struct ActiveTask {
 
     /// Tokens processed so far (for progress tracking)
     pub tokens_processed: u32,
+
+    /// Where this task originated from
+    pub source: TaskSource,
 }
 
 impl ActiveTask {
@@ -82,6 +102,7 @@ impl ActiveTask {
             cancel_tx: None,
             error: None,
             tokens_processed: 0,
+            source: TaskSource::Coordinator,
         }
     }
 

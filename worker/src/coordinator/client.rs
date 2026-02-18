@@ -22,6 +22,7 @@ use url::Url;
 use crate::error::{Error, Result};
 use crate::protocol::{
     HeartbeatAckResponse, HeartbeatRequest, Message, MessageEnvelope,
+    PeerDirectoryEntry, GroupAssignedMessage,
     RegisterAckResponse, RegisterRequest, ResourceUsageReport,
     TaskResultMessage, WorkerCapabilities, WorkerStatus,
 };
@@ -194,6 +195,18 @@ pub enum ClientEvent {
 
     /// Reconnecting
     Reconnecting { attempt: u32 },
+
+    /// Peer directory received from coordinator
+    PeerDirectory(Vec<PeerDirectoryEntry>),
+
+    /// A single peer was discovered
+    PeerDiscovered(PeerDirectoryEntry),
+
+    /// A peer left the network
+    PeerLeft { worker_id: String },
+
+    /// Assigned to a work group
+    GroupAssigned(GroupAssignedMessage),
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -716,6 +729,28 @@ async fn handle_incoming_message(
                 message: err.message,
                 fatal: err.fatal,
             }).await;
+        }
+
+        Message::PeerDirectory(dir) => {
+            info!(peer_count = dir.peers.len(), "Received peer directory");
+            let _ = event_tx.send(ClientEvent::PeerDirectory(dir.peers)).await;
+        }
+
+        Message::PeerDiscover(discover) => {
+            info!(worker_id = %discover.worker_id, "Peer discovered");
+            let entry = PeerDirectoryEntry {
+                worker_id: discover.worker_id,
+                name: String::new(),
+                listen_addr: discover.listen_addr,
+                capabilities: discover.capabilities,
+                status: WorkerStatus::Ready,
+            };
+            let _ = event_tx.send(ClientEvent::PeerDiscovered(entry)).await;
+        }
+
+        Message::GroupAssigned(group) => {
+            info!(group_id = %group.group_id, "Assigned to work group");
+            let _ = event_tx.send(ClientEvent::GroupAssigned(group)).await;
         }
 
         _ => {

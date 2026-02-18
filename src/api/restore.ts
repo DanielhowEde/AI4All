@@ -1,19 +1,19 @@
 /**
- * Restore API state from SQLite after server restart.
+ * Restore API state from file-based stores after server restart.
  */
 
 import { ApiState, createApiState } from './state';
 import { DayPhase, LinkedDevice } from './types';
-import type { SqliteStores } from '../persistence/sqlite';
+import type { FileStores } from '../persistence/file';
 import { createEmptyNetworkState } from '../services/serviceTypes';
 
-export async function restoreApiState(sqliteStores: SqliteStores): Promise<ApiState> {
+export async function restoreApiState(fileStores: FileStores): Promise<ApiState> {
   // 1. Load latest finalized state
-  const latestSnapshot = await sqliteStores.state.loadLatestSnapshot();
+  const latestSnapshot = await fileStores.state.loadLatestSnapshot();
   let networkState = createEmptyNetworkState();
 
   if (latestSnapshot) {
-    const saved = await sqliteStores.state.loadState(latestSnapshot.dayId);
+    const saved = await fileStores.state.loadState(latestSnapshot.dayId);
     if (saved) {
       networkState = saved;
     }
@@ -21,26 +21,26 @@ export async function restoreApiState(sqliteStores: SqliteStores): Promise<ApiSt
 
   // 2. Create base state
   const state = createApiState({
-    event: sqliteStores.event,
-    state: sqliteStores.state,
-    assignment: sqliteStores.assignment,
-    submission: sqliteStores.submission,
+    event: fileStores.event,
+    state: fileStores.state,
+    assignment: fileStores.assignment,
+    submission: fileStores.submission,
   });
 
   state.networkState = networkState;
-  state.kvStore = sqliteStores.kv;
-  state.balanceStore = sqliteStores.balance;
+  state.operationalStore = fileStores.operational;
+  state.balanceLedger = fileStores.balance;
 
   // 3. Restore nodeKeys
-  state.nodeKeys = sqliteStores.kv.loadNodeKeys();
+  state.nodeKeys = fileStores.operational.loadNodeKeys();
 
   // 4. Restore devices
-  const { devices, accountDevices } = sqliteStores.kv.loadDevices();
+  const { devices, accountDevices } = fileStores.operational.loadDevices();
   state.devices = devices as Map<string, LinkedDevice>;
   state.accountDevices = accountDevices;
 
   // 5. Restore day lifecycle
-  const lifecycle = sqliteStores.kv.loadDayPhase();
+  const lifecycle = fileStores.operational.loadDayPhase();
   if (lifecycle && lifecycle.dayPhase === 'ACTIVE' && lifecycle.currentDayId) {
     state.dayPhase = lifecycle.dayPhase as DayPhase;
     state.currentDayId = lifecycle.currentDayId;
@@ -48,11 +48,11 @@ export async function restoreApiState(sqliteStores: SqliteStores): Promise<ApiSt
     state.currentRosterAccountIds = lifecycle.rosterAccountIds;
     state.currentCanaryBlockIds = new Set(lifecycle.canaryBlockIds);
 
-    // Restore assignments from SQLite
-    state.currentDayAssignments = await sqliteStores.assignment.getByDay(lifecycle.currentDayId);
+    // Restore assignments from file store
+    state.currentDayAssignments = await fileStores.assignment.getByDay(lifecycle.currentDayId);
 
     // Restore pending submissions
-    state.pendingSubmissions = await sqliteStores.submission.listByDay(lifecycle.currentDayId);
+    state.pendingSubmissions = await fileStores.submission.listByDay(lifecycle.currentDayId);
   }
 
   return state;

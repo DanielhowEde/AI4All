@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 /// executes them using local CPU/GPU resources, and returns results.
 #[derive(Parser, Debug)]
 #[command(name = "ai4all-worker")]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about = "AI4All Worker - Distributed AI compute worker", long_about = None)]
 #[command(propagate_version = true)]
 pub struct Cli {
     /// Increase logging verbosity (-v for debug, -vv for trace)

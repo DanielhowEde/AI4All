@@ -1,7 +1,7 @@
 /**
  * Fixed-Point Arithmetic for Deterministic Token Calculations
  *
- * Uses bigint to represent token amounts in microunits (1 token = 1,000,000 microunits).
+ * Uses bigint to represent token amounts in nanounits (1 token = 1,000,000,000 nanounits).
  * This provides deterministic, auditable calculations that are identical across all platforms.
  *
  * Why fixed-point?
@@ -12,10 +12,13 @@
  */
 
 /**
- * Microunits per token (1 token = 1,000,000 microunits)
- * Provides 6 decimal places of precision
+ * Nanounits per token (1 token = 1,000,000,000 nanounits)
+ * Provides 9 decimal places of precision
  */
-export const MICRO_UNITS = 1_000_000n;
+export const NANO_UNITS = 1_000_000_000n;
+
+/** @deprecated Use NANO_UNITS instead */
+export const MICRO_UNITS = NANO_UNITS;
 
 /**
  * Maximum safe token amount (~9 trillion tokens)
@@ -24,13 +27,13 @@ export const MICRO_UNITS = 1_000_000n;
 export const MAX_SAFE_TOKENS = 9_007_199_254_740_991n; // Number.MAX_SAFE_INTEGER
 
 /**
- * Convert tokens (as number) to microunits (as bigint)
+ * Convert tokens (as number) to nanounits (as bigint)
  *
  * @param tokens Token amount as floating-point number
- * @returns Microunits as bigint
+ * @returns Nanounits as bigint
  * @throws Error if tokens is negative or exceeds MAX_SAFE_TOKENS
  */
-export function toMicroUnits(tokens: number): bigint {
+export function toNanoUnits(tokens: number): bigint {
   if (tokens < 0) {
     throw new Error(`Cannot convert negative tokens: ${tokens}`);
   }
@@ -39,19 +42,22 @@ export function toMicroUnits(tokens: number): bigint {
     throw new Error(`Token amount exceeds maximum safe value: ${tokens}`);
   }
 
-  // Multiply by MICRO_UNITS and round to nearest integer
-  const microUnits = BigInt(Math.round(tokens * Number(MICRO_UNITS)));
-  return microUnits;
+  // Multiply by NANO_UNITS and round to nearest integer
+  const nanoUnits = BigInt(Math.round(tokens * Number(NANO_UNITS)));
+  return nanoUnits;
 }
 
+/** @deprecated Use toNanoUnits instead */
+export const toMicroUnits = toNanoUnits;
+
 /**
- * Convert microunits (as bigint) to tokens (as number)
+ * Convert nanounits (as bigint) to tokens (as number)
  *
- * @param microUnits Microunit amount as bigint
+ * @param nanoUnits Nanounit amount as bigint
  * @returns Token amount as floating-point number
  */
-export function toTokens(microUnits: bigint): number {
-  return Number(microUnits) / Number(MICRO_UNITS);
+export function toTokens(nanoUnits: bigint): number {
+  return Number(nanoUnits) / Number(NANO_UNITS);
 }
 
 /**
@@ -63,8 +69,8 @@ export function toTokens(microUnits: bigint): number {
  * Algorithm: Start with initial guess, iteratively improve using:
  * x_{n+1} = (x_n + n / x_n) / 2
  *
- * @param n Value to take square root of (in microunits)
- * @returns Integer square root (in microunits)
+ * @param n Value to take square root of (in nanounits)
+ * @returns Integer square root (in nanounits)
  */
 export function sqrtBigInt(n: bigint): bigint {
   if (n < 0n) {
@@ -94,34 +100,30 @@ export function sqrtBigInt(n: bigint): bigint {
 }
 
 /**
- * Calculate sqrt of points value (in microunits)
+ * Calculate sqrt of points value (in nanounits)
  *
- * Takes a point value in microunits and returns sqrt(points) in microunits.
+ * Takes a point value in nanounits and returns sqrt(points) in nanounits.
  *
- * Example:
- * - Input: 100_000_000 (100 tokens worth of points)
- * - Output: 10_000_000 (sqrt(100) = 10, in microunits)
+ * Example (with 1e9 nanounits):
+ * - Input: 100_000_000_000 (100 tokens worth of points)
+ * - Output: 10_000_000_000 (sqrt(100) = 10, in nanounits)
  *
  * Algorithm:
- * 1. Divide points by MICRO_UNITS to get raw value (100_000_000 / 1_000_000 = 100)
- * 2. Take sqrt of raw value: sqrt(100) = 10
- * 3. Multiply result by MICRO_UNITS to convert back: 10 * 1_000_000 = 10_000_000
+ * 1. Scale up by NANO_UNITS for precision
+ * 2. Take integer sqrt
+ * 3. Result is sqrt(points) in nanounits
  *
- * For precision, we use: sqrt(points) * sqrt(MICRO_UNITS) / sqrt(MICRO_UNITS) * MICRO_UNITS
- * Simplified: sqrt(points * MICRO_UNITS^2) / MICRO_UNITS
- *
- * @param pointsMicroUnits Point value in microunits
- * @returns sqrt(points) in microunits
+ * @param pointsNanoUnits Point value in nanounits
+ * @returns sqrt(points) in nanounits
  */
-export function sqrtPoints(pointsMicroUnits: bigint): bigint {
-  if (pointsMicroUnits === 0n) {
+export function sqrtPoints(pointsNanoUnits: bigint): bigint {
+  if (pointsNanoUnits === 0n) {
     return 0n;
   }
 
-  // Scale up for precision: points * MICRO_UNITS^2
-  // Then sqrt and divide by MICRO_UNITS
-  // This gives us sqrt(points) * MICRO_UNITS
-  const scaled = pointsMicroUnits * MICRO_UNITS; // Scale by additional MICRO_UNITS
+  // Scale up for precision: points * NANO_UNITS^2
+  // Then sqrt → gives sqrt(points) * NANO_UNITS
+  const scaled = pointsNanoUnits * NANO_UNITS;
   const sqrtScaled = sqrtBigInt(scaled);
 
   return sqrtScaled;
@@ -139,10 +141,10 @@ export function sqrtPoints(pointsMicroUnits: bigint): bigint {
  * 1. Calculate each share: floor(weight * poolAmount / totalWeight)
  * 2. Sum the shares and calculate remainder
  * 3. Sort by fractional part (descending)
- * 4. Distribute remainder one microunit at a time to largest fractions
+ * 4. Distribute remainder one nanounit at a time to largest fractions
  *
- * @param weights Array of weights (in microunits)
- * @param poolAmount Total amount to distribute (in microunits)
+ * @param weights Array of weights (in nanounits)
+ * @param poolAmount Total amount to distribute (in nanounits)
  * @returns Array of distributed amounts (same order as weights)
  */
 export function distributeProportional(
@@ -200,7 +202,7 @@ export function distributeProportional(
     return a.index - b.index;
   });
 
-  // Distribute remainder one microunit at a time
+  // Distribute remainder one nanounit at a time
   for (const { index } of fractionals) {
     if (remainder === 0n) break;
     shares[index] += 1n;
@@ -225,9 +227,9 @@ export function distributeProportional(
  * Takes an array of point values, calculates sqrt weights, and returns
  * proportional shares of the pool amount.
  *
- * @param points Array of point values (in microunits)
- * @param poolAmount Total pool to distribute (in microunits)
- * @returns Array of distributed amounts (in microunits)
+ * @param points Array of point values (in nanounits)
+ * @param poolAmount Total pool to distribute (in nanounits)
+ * @returns Array of distributed amounts (in nanounits)
  */
 export function distributeSqrtWeighted(
   points: bigint[],
@@ -245,14 +247,14 @@ export function distributeSqrtWeighted(
 }
 
 /**
- * Format microunits as human-readable token string
+ * Format nanounits as human-readable token string
  *
- * @param microUnits Amount in microunits
- * @param decimals Number of decimal places to show (default: 6)
- * @returns Formatted string (e.g., "1000.123456")
+ * @param nanoUnits Amount in nanounits
+ * @param decimals Number of decimal places to show (default: 9)
+ * @returns Formatted string (e.g., "1000.123456789")
  */
-export function formatTokens(microUnits: bigint, decimals: number = 6): string {
-  const tokens = toTokens(microUnits);
+export function formatTokens(nanoUnits: bigint, decimals: number = 9): string {
+  const tokens = toTokens(nanoUnits);
   return tokens.toFixed(decimals);
 }
 

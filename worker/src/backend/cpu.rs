@@ -649,6 +649,7 @@ mod tests {
             use_mmap: false,
             use_mlock: true,
             seed: Some(42),
+            openai: None,
         };
 
         let cpu_config: CpuBackendConfig = config.into();

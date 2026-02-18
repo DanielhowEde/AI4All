@@ -55,9 +55,9 @@ export function createNodesRouter(state: ApiState): Router {
     // Store nodeKey for authentication
     state.nodeKeys.set(accountId, nodeKey);
 
-    // Persist to SQLite if available
-    if (state.kvStore) {
-      state.kvStore.saveNodeKeys(state.nodeKeys);
+    // Persist if available
+    if (state.operationalStore) {
+      state.operationalStore.saveNodeKeys(state.nodeKeys);
     }
 
     const response: RegisterNodeResponse = {
