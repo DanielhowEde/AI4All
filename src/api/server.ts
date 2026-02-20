@@ -8,6 +8,11 @@ import { DayScheduler } from './scheduler';
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const USE_PERSISTENT = process.env.STORE_BACKEND !== 'memory';
 
+// Peers that haven't heartbeated within this window are pruned from the directory.
+// Default 5 minutes. Override with PEER_STALE_TTL_SECS env var.
+const PEER_STALE_TTL_MS =
+  (process.env.PEER_STALE_TTL_SECS ? parseInt(process.env.PEER_STALE_TTL_SECS, 10) : 300) * 1000;
+
 async function main() {
   let state: ApiState;
 
@@ -39,17 +44,38 @@ async function main() {
     scheduler.start();
   }
 
+  // Prune peers that haven't heartbeated recently (every 60 seconds)
+  const peerPruner = setInterval(() => {
+    const cutoff = new Date(Date.now() - PEER_STALE_TTL_MS).toISOString();
+    const stale: string[] = [];
+    for (const [workerId, peer] of state.peers) {
+      if (peer.lastSeen < cutoff) stale.push(workerId);
+    }
+    for (const workerId of stale) {
+      state.peers.delete(workerId);
+      // Remove from work groups too
+      for (const [, group] of state.workGroups) {
+        group.members = group.members.filter(m => m.workerId !== workerId);
+      }
+    }
+    if (stale.length > 0) {
+      console.log(`Pruned ${stale.length} stale peer(s): ${stale.join(', ')}`);
+    }
+  }, 60_000);
+
   const server = app.listen(PORT, () => {
     console.log(`AI4All API server running on port ${PORT}`);
     console.log(`Store backend: ${USE_PERSISTENT ? 'file' : 'in-memory'}`);
     console.log(`Admin key: ${process.env.ADMIN_KEY ? '[SET]' : 'test-admin-key (default)'}`);
     if (scheduler) console.log('Day scheduler: enabled');
+    console.log(`Peer stale TTL: ${PEER_STALE_TTL_MS / 1000}s (prune interval: 60s)`);
     console.log(`Health check: http://localhost:${PORT}/health`);
   });
 
   // Graceful shutdown
   const shutdown = () => {
     console.log('Shutting down...');
+    clearInterval(peerPruner);
     scheduler?.stop();
     server.close(() => {
       console.log('Server stopped.');

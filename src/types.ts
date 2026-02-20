@@ -46,6 +46,7 @@ export interface Contributor {
   canaryFailures: number; // Count of failed canary blocks (for auditing)
   canaryPasses: number; // Count of passed canary blocks (for rehabilitation)
   lastCanaryFailureTime?: Date; // Timestamp of most recent canary failure (for 24h block)
+  lastSeenAt?: Date; // Last successful heartbeat from this node
 }
 
 /**

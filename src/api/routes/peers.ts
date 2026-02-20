@@ -93,18 +93,22 @@ export function createPeersRouter(state: ApiState): Router {
 
   /**
    * GET /peers/directory
-   * Returns all registered peers. Workers call this after registration
+   * Returns live registered peers. Workers call this after registration
    * to discover other workers for direct P2P connections.
    *
    * Query params:
-   *   ?exclude=<workerId>  — exclude self from the directory listing
+   *   ?exclude=<workerId>    — exclude self from the listing
+   *   ?staleTtlSecs=<n>      — override staleness threshold (default 300s)
    */
   router.get('/directory', (req: Request, res: Response) => {
     const exclude = req.query.exclude as string | undefined;
+    const staleTtlSecs = parseInt(req.query.staleTtlSecs as string, 10) || 300;
+    const cutoff = new Date(Date.now() - staleTtlSecs * 1000).toISOString();
 
     const peers: PeerInfo[] = [];
     for (const [, peer] of state.peers) {
       if (exclude && peer.workerId === exclude) continue;
+      if (peer.lastSeen < cutoff) continue; // Skip stale peers
       peers.push(peer);
     }
 

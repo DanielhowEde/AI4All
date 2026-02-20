@@ -119,9 +119,11 @@ export function createNodesRouter(state: ApiState): Router {
       return;
     }
 
-    // Update lastSeenAt (for future liveness tracking)
-    // For now, we just acknowledge the heartbeat
-    // In future: update contributor.lastSeenAt in state
+    // Update lastSeenAt for liveness tracking
+    const contributor = state.networkState.contributors.get(accountId);
+    if (contributor) {
+      contributor.lastSeenAt = new Date();
+    }
 
     const response: HeartbeatResponse = {
       success: true,
