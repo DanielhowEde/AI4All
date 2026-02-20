@@ -10,7 +10,11 @@
     "test:coverage": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
     "build": "tsc",
     "lint": "eslint src --ext .ts",
-    "start:api": "ts-node src/api/server.ts"
+    "start:api": "ts-node src/api/server.ts",
+    "wallet:create": "ts-node --project scripts/tsconfig.json scripts/wallet-setup.ts create",
+    "wallet:list": "ts-node --project scripts/tsconfig.json scripts/wallet-setup.ts list",
+    "wallet:register": "ts-node --project scripts/tsconfig.json scripts/wallet-setup.ts register",
+    "wallet:status": "ts-node --project scripts/tsconfig.json scripts/wallet-setup.ts status"
   },
   "keywords": [
     "ai4all",
