@@ -152,17 +152,17 @@ export class InMemorySubmissionStore implements ISubmissionStore {
 }
 
 export class InMemoryOperationalStore implements IOperationalStore {
-  private nodeKeys = new Map<string, string>();
+  private publicKeys = new Map<string, string>();
   private devices = new Map<string, unknown>();
   private accountDevices = new Map<string, string[]>();
   private dayPhase: DayLifecycleData | undefined;
 
-  saveNodeKeys(keys: Map<string, string>): void {
-    this.nodeKeys = new Map(keys);
+  savePublicKeys(keys: Map<string, string>): void {
+    this.publicKeys = new Map(keys);
   }
 
-  loadNodeKeys(): Map<string, string> {
-    return new Map(this.nodeKeys);
+  loadPublicKeys(): Map<string, string> {
+    return new Map(this.publicKeys);
   }
 
   saveDevices(d: Map<string, unknown>, ad: Map<string, string[]>): void {
@@ -190,7 +190,7 @@ export class InMemoryOperationalStore implements IOperationalStore {
   }
 
   clear(): void {
-    this.nodeKeys.clear();
+    this.publicKeys.clear();
     this.devices.clear();
     this.accountDevices.clear();
     this.dayPhase = undefined;

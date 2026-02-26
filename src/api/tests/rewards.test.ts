@@ -5,48 +5,44 @@ import { createInMemoryStores } from '../../persistence/inMemoryStores';
 import { ErrorCodes } from '../types';
 import { BlockType } from '../../types';
 import { verifyRewardProof, deserializeRewardProof } from '../../merkle';
+import { makeTestNode, signWorkerRequest, TestNode } from './helpers';
 
 const ADMIN_KEY = 'test-admin-key';
 
 describe('/rewards endpoints', () => {
   let state: ApiState;
   let app: ReturnType<typeof createApp>;
-  let aliceKey: string;
+  let alice: TestNode;
 
   beforeEach(async () => {
     const stores = createInMemoryStores();
     state = createApiState(stores);
     app = createApp(state);
 
-    // Register alice
-    const response = await request(app)
+    alice = await makeTestNode();
+    await request(app)
       .post('/nodes/register')
-      .send({ accountId: 'alice' });
-    aliceKey = response.body.nodeKey;
+      .send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
   });
 
-  /**
-   * Helper to complete a day with work submission
-   */
   async function completeDay(dayId: string) {
-    // Start day
     await request(app)
       .post('/admin/day/start')
       .set('X-Admin-Key', ADMIN_KEY)
       .send({ dayId });
 
-    // Get assignments
+    const workAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
     const workResponse = await request(app)
       .post('/work/request')
-      .send({ accountId: 'alice', nodeKey: aliceKey });
+      .send({ accountId: alice.accountId, ...workAuth });
 
-    // Submit at least one block so alice is an active contributor
     const blockId = workResponse.body.assignments[0].blockId;
+    const submitAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
     await request(app)
       .post('/work/submit')
       .send({
-        accountId: 'alice',
-        nodeKey: aliceKey,
+        accountId: alice.accountId,
+        ...submitAuth,
         submissions: [
           {
             blockId,
@@ -58,7 +54,6 @@ describe('/rewards endpoints', () => {
         ],
       });
 
-    // Finalize day
     await request(app)
       .post('/admin/day/finalize')
       .set('X-Admin-Key', ADMIN_KEY);
@@ -85,7 +80,6 @@ describe('/rewards endpoints', () => {
     it('should return rewards after finalization', async () => {
       await completeDay('2026-01-28');
 
-      // Query rewards
       const response = await request(app)
         .get('/rewards/day')
         .query({ dayId: '2026-01-28' });
@@ -99,30 +93,25 @@ describe('/rewards endpoints', () => {
     });
 
     it('should return latest day when no dayId specified', async () => {
-      // Complete day 1
       await completeDay('2026-01-28');
-
-      // Complete day 2
       await completeDay('2026-01-29');
 
-      // Query without dayId
       const response = await request(app)
         .get('/rewards/day');
 
       expect(response.status).toBe(200);
-      expect(response.body.dayId).toBe('2026-01-29'); // Latest day
+      expect(response.body.dayId).toBe('2026-01-29');
     });
 
     it('should include reward breakdown per contributor', async () => {
       await completeDay('2026-01-28');
 
-      // Query rewards
       const response = await request(app)
         .get('/rewards/day')
         .query({ dayId: '2026-01-28' });
 
       const aliceReward = response.body.distribution.rewards.find(
-        (r: { accountId: string }) => r.accountId === 'alice'
+        (r: { accountId: string }) => r.accountId === alice.accountId
       );
 
       expect(aliceReward).toBeDefined();
@@ -136,7 +125,7 @@ describe('/rewards endpoints', () => {
     it('should return 400 for missing dayId', async () => {
       const response = await request(app)
         .get('/rewards/proof')
-        .query({ accountId: 'alice' });
+        .query({ accountId: alice.accountId });
 
       expect(response.status).toBe(400);
     });
@@ -152,7 +141,7 @@ describe('/rewards endpoints', () => {
     it('should return 404 for non-existent day', async () => {
       const response = await request(app)
         .get('/rewards/proof')
-        .query({ dayId: '2026-01-28', accountId: 'alice' });
+        .query({ dayId: '2026-01-28', accountId: alice.accountId });
 
       expect(response.status).toBe(404);
       expect(response.body.code).toBe(ErrorCodes.NO_DISTRIBUTION_FOUND);
@@ -173,14 +162,14 @@ describe('/rewards endpoints', () => {
 
       const response = await request(app)
         .get('/rewards/proof')
-        .query({ dayId: '2026-01-28', accountId: 'alice' });
+        .query({ dayId: '2026-01-28', accountId: alice.accountId });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(response.body.dayId).toBe('2026-01-28');
-      expect(response.body.accountId).toBe('alice');
+      expect(response.body.accountId).toBe(alice.accountId);
       expect(response.body.rewardRoot).toBeDefined();
-      expect(response.body.rewardRoot).toHaveLength(64); // SHA-256 hex
+      expect(response.body.rewardRoot).toHaveLength(64);
       expect(response.body.proof).toBeDefined();
       expect(response.body.proof.amountMicrounits).toBeDefined();
       expect(response.body.proof.leaf).toBeDefined();
@@ -192,11 +181,10 @@ describe('/rewards endpoints', () => {
 
       const response = await request(app)
         .get('/rewards/proof')
-        .query({ dayId: '2026-01-28', accountId: 'alice' });
+        .query({ dayId: '2026-01-28', accountId: alice.accountId });
 
       expect(response.status).toBe(200);
 
-      // Deserialize and verify the proof
       const proof = deserializeRewardProof(response.body.proof);
       expect(verifyRewardProof(proof)).toBe(true);
     });
@@ -206,11 +194,11 @@ describe('/rewards endpoints', () => {
 
       const response1 = await request(app)
         .get('/rewards/proof')
-        .query({ dayId: '2026-01-28', accountId: 'alice' });
+        .query({ dayId: '2026-01-28', accountId: alice.accountId });
 
       const response2 = await request(app)
         .get('/rewards/proof')
-        .query({ dayId: '2026-01-28', accountId: 'alice' });
+        .query({ dayId: '2026-01-28', accountId: alice.accountId });
 
       expect(response1.body.rewardRoot).toBe(response2.body.rewardRoot);
     });
@@ -258,7 +246,7 @@ describe('/rewards endpoints', () => {
 
       const proofResponse = await request(app)
         .get('/rewards/proof')
-        .query({ dayId: '2026-01-28', accountId: 'alice' });
+        .query({ dayId: '2026-01-28', accountId: alice.accountId });
 
       expect(rootResponse.body.rewardRoot).toBe(proofResponse.body.rewardRoot);
     });
@@ -274,7 +262,6 @@ describe('/rewards endpoints', () => {
         roots.push(response.body.rewardRoot);
       }
 
-      // All roots should be identical
       const uniqueRoots = new Set(roots);
       expect(uniqueRoots.size).toBe(1);
     });

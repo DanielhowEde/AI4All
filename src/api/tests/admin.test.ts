@@ -4,24 +4,24 @@ import { createApiState, ApiState } from '../state';
 import { createInMemoryStores } from '../../persistence/inMemoryStores';
 import { ErrorCodes } from '../types';
 import { BlockType } from '../../types';
+import { makeTestNode, signWorkerRequest, TestNode } from './helpers';
 
 const ADMIN_KEY = 'test-admin-key';
 
 describe('/admin endpoints', () => {
   let state: ApiState;
   let app: ReturnType<typeof createApp>;
-  let aliceKey: string;
+  let alice: TestNode;
 
   beforeEach(async () => {
     const stores = createInMemoryStores();
     state = createApiState(stores);
     app = createApp(state);
 
-    // Register a node for testing
-    const response = await request(app)
+    alice = await makeTestNode();
+    await request(app)
       .post('/nodes/register')
-      .send({ accountId: 'alice' });
-    aliceKey = response.body.nodeKey;
+      .send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
   });
 
   describe('POST /admin/day/start', () => {
@@ -38,7 +38,7 @@ describe('/admin endpoints', () => {
       expect(response.body.totalBlocks).toBeGreaterThan(0);
       expect(response.body.seed).toBeDefined();
       expect(response.body.rosterHash).toBeDefined();
-      expect(response.body.rosterHash.length).toBe(64); // SHA-256 hex
+      expect(response.body.rosterHash.length).toBe(64);
     });
 
     it('should use today UTC if dayId not provided', async () => {
@@ -92,7 +92,7 @@ describe('/admin endpoints', () => {
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
-      expect(state.currentRosterAccountIds).toContain('alice');
+      expect(state.currentRosterAccountIds).toContain(alice.accountId);
       expect(state.dayPhase).toBe('ACTIVE');
     });
   });
@@ -145,24 +145,23 @@ describe('/admin endpoints', () => {
     });
 
     it('should finalize day successfully', async () => {
-      // Start day
       await request(app)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
-      // Get assignments
+      const workAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const workResponse = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: aliceKey });
+        .send({ accountId: alice.accountId, ...workAuth });
 
-      // Submit at least one block so alice is an active contributor
       const blockId = workResponse.body.assignments[0].blockId;
+      const submitAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       await request(app)
         .post('/work/submit')
         .send({
-          accountId: 'alice',
-          nodeKey: aliceKey,
+          accountId: alice.accountId,
+          ...submitAuth,
           submissions: [
             {
               blockId,
@@ -174,7 +173,6 @@ describe('/admin endpoints', () => {
           ],
         });
 
-      // Finalize
       const response = await request(app)
         .post('/admin/day/finalize')
         .set('X-Admin-Key', ADMIN_KEY);

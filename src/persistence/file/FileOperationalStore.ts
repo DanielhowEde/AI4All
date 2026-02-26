@@ -3,7 +3,7 @@ import * as path from 'path';
 import { IOperationalStore, DayLifecycleData } from '../interfaces';
 
 interface OperationalData {
-  nodeKeys?: Array<[string, string]>;
+  publicKeys?: Array<[string, string]>;
   devices?: Array<[string, unknown]>;
   accountDevices?: Array<[string, string[]]>;
   dayLifecycle?: DayLifecycleData;
@@ -28,15 +28,15 @@ export class FileOperationalStore implements IOperationalStore {
     fs.renameSync(tmp, this.filePath);
   }
 
-  saveNodeKeys(nodeKeys: Map<string, string>): void {
+  savePublicKeys(publicKeys: Map<string, string>): void {
     const data = this.read();
-    data.nodeKeys = Array.from(nodeKeys.entries());
+    data.publicKeys = Array.from(publicKeys.entries());
     this.write(data);
   }
 
-  loadNodeKeys(): Map<string, string> {
+  loadPublicKeys(): Map<string, string> {
     const data = this.read();
-    return data.nodeKeys ? new Map(data.nodeKeys) : new Map();
+    return data.publicKeys ? new Map(data.publicKeys) : new Map();
   }
 
   saveDevices(

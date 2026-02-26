@@ -191,6 +191,7 @@ async function cmdRegister(args: Args): Promise<void> {
   try {
     result = await apiPost(`${args.api}/nodes/register`, {
       accountId: wallet.address,
+      publicKey: wallet.publicKey,
     }) as Record<string, unknown>;
   } catch (err) {
     console.error(`\n  Failed to connect to ${args.api}`);
@@ -200,9 +201,10 @@ async function cmdRegister(args: Args): Promise<void> {
 
   if (result.success) {
     console.log('\n  Registration successful!');
-    console.log(`  Node key:  ${result.nodeKey as string}`);
-    console.log('\n  Save this node key — you will need it to submit work.');
-    console.log(`  Add to your worker config:  coordinator.nodeKey = "${result.nodeKey as string}"`);
+    console.log(`  Address:    ${wallet.address}`);
+    console.log('\n  Add to your worker config (ai4all-worker.toml):');
+    console.log(`    account_id = "${wallet.address}"`);
+    console.log(`    secret_key = "<your secretKey from wallets/${name}.identity.json>"`);
   } else if ((result.code as string) === 'DUPLICATE_NODE') {
     console.log('\n  Already registered — wallet is active on the network.');
   } else {

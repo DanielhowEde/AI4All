@@ -29,7 +29,7 @@ Decentralised AI compute network. Workers contribute GPU/CPU resources, earn tok
 
 ```bash
 npm install
-npm test          # 552 tests
+npm test          # 632 tests
 npm run build
 npm start         # Express server on :3000
 ```
@@ -69,7 +69,10 @@ src/
 │   │   ├── work.ts             # Work request/submit (dual auth: nodeKey OR device sig)
 │   │   ├── rewards.ts          # Reward queries, Merkle proofs
 │   │   ├── admin.ts            # Admin endpoints (day management)
-│   │   └── pairing.ts          # 6-endpoint device pairing protocol
+│   │   ├── pairing.ts          # 6-endpoint device pairing protocol
+│   │   ├── tasks.ts            # On-demand AI task queue
+│   │   ├── peers.ts            # P2P worker discovery & groups
+│   │   └── data.ts             # Crawled data ingest from workers
 │   └── tests/                  # API integration tests (supertest)
 ├── crypto/
 │   ├── keys.ts                 # ML-DSA-65 keypair generation (via liboqs WASM)
@@ -108,9 +111,10 @@ worker/
 │   ├── cli.rs                  # CLI args (run, pair, benchmark subcommands)
 │   ├── config.rs               # TOML configuration
 │   ├── pairing.rs              # Device pairing: keygen, QR display, poll, sign
+│   ├── crawler.rs              # Background web crawler service
 │   ├── coordinator/            # Server communication
 │   ├── executor/               # Task execution engine
-│   ├── backend/                # Compute backends (CPU, Vulkan, mock)
+│   ├── backend/                # Compute backends (CPU, OpenAI-compat, crawler, mock)
 │   ├── gpu/                    # GPU detection
 │   ├── system/                 # Health checks, benchmarking
 │   └── plugins/                # Plugin system
@@ -148,6 +152,7 @@ After pairing, workers authenticate with device signatures instead of plain node
 - **Fixed-point arithmetic**: Bigint microunits (1 token = 1,000,000 microunits) for deterministic calculation
 - **Canary system**: Honeypot blocks detect gaming, dynamic rehabilitation (no permanent bans)
 - **Block assignment**: Weighted lottery, 2,200 blocks/day in batches of 5
+- **Web crawler**: Workers autonomously crawl seed URLs and submit text/embeddings; rewarded per accepted page
 
 ### Event Sourcing & Persistence
 
@@ -156,12 +161,12 @@ All state changes recorded as domain events. Full state is reconstructable via r
 ## Testing
 
 ```bash
-npm test           # All 552 tests
+npm test           # All 632 tests
 npm run test:watch # Watch mode
 npm run test:coverage
 ```
 
-### Test Suites (28 total, 552 tests)
+### Test Suites (30 total, 632 tests)
 
 | Suite | Tests | Covers |
 |-------|-------|--------|
@@ -206,3 +211,7 @@ npm run test:coverage
 - `POST /pairing/approve` — Phone approves with wallet signature
 - `GET /pairing/:pairingId/status` — Poll for approval status
 - `POST /pairing/complete` — Worker completes with device signature
+
+### Data Ingest
+- `POST /data/crawled` — Worker submits crawled pages (ML-DSA-65 auth, deduplication, flat reward per page)
+- `GET /data/crawled` — Query crawled pages (optional `?url=` prefix filter)

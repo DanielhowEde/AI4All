@@ -523,11 +523,6 @@ export function createPairingRouter(state: ApiState): Router {
       state.networkState = newState;
     }
 
-    // Store a nodeKey for backward compatibility (device-signed auth is preferred)
-    if (!state.nodeKeys.has(accountId)) {
-      state.nodeKeys.set(accountId, crypto.randomUUID());
-    }
-
     const response: PairingCompleteResponse = {
       success: true,
       deviceId,

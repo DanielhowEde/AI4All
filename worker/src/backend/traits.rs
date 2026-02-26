@@ -16,6 +16,7 @@ use crate::types::{
     TextCompletionInput, TextCompletionOutput,
     TrainingBatchInput, TrainingBatchOutput,
     ValidationInput, ValidationOutput,
+    WebCrawlInput, WebCrawlOutput,
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -282,6 +283,17 @@ pub trait InferenceBackend: Send + Sync {
     ) -> Result<ValidationOutput> {
         Err(Error::NotSupported(format!(
             "Backend '{}' does not support validation",
+            self.name()
+        )))
+    }
+
+    /// Execute web crawl task
+    async fn web_crawl(
+        &self,
+        _input: WebCrawlInput,
+    ) -> Result<WebCrawlOutput> {
+        Err(Error::NotSupported(format!(
+            "Backend '{}' does not support web crawling",
             self.name()
         )))
     }

@@ -16,6 +16,9 @@
     "wallet:register": "ts-node --project scripts/tsconfig.json scripts/wallet-setup.ts register",
     "wallet:status": "ts-node --project scripts/tsconfig.json scripts/wallet-setup.ts status"
   },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "keywords": [
     "ai4all",
     "rewards",

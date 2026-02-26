@@ -3,6 +3,7 @@ import { createApp } from '../app';
 import { createApiState, ApiState } from '../state';
 import { createInMemoryStores } from '../../persistence/inMemoryStores';
 import { ErrorCodes } from '../types';
+import { makeTestNode, signWorkerRequest } from './helpers';
 
 describe('/tasks endpoints', () => {
   let state: ApiState;
@@ -14,18 +15,17 @@ describe('/tasks endpoints', () => {
     state = createApiState(stores);
     app = createApp(state);
 
-    // Register a node so we have an accountId + nodeKey
-    const nodeRes = await request(app)
+    const workerNode = await makeTestNode();
+    await request(app)
       .post('/nodes/register')
-      .send({ accountId: 'worker-account' });
-    const nodeKey = nodeRes.body.nodeKey;
+      .send({ accountId: workerNode.accountId, publicKey: workerNode.publicKeyHex });
 
-    // Register as peer to get a workerId
+    const peerAuth = await signWorkerRequest(workerNode.accountId, workerNode.secretKeyHex);
     const peerRes = await request(app)
       .post('/peers/register')
       .send({
-        accountId: 'worker-account',
-        nodeKey,
+        accountId: workerNode.accountId,
+        ...peerAuth,
         listenAddr: '127.0.0.1:9100',
       });
     workerId = peerRes.body.workerId;
@@ -93,13 +93,11 @@ describe('/tasks endpoints', () => {
     });
 
     it('should assign a pending task to a worker', async () => {
-      // Submit a task
       const submitRes = await request(app)
         .post('/tasks/submit')
         .send({ clientId: 'c1', prompt: 'Write code', model: 'gpt-4o' });
       const taskId = submitRes.body.taskId;
 
-      // Poll for tasks
       const res = await request(app)
         .get(`/tasks/pending?workerId=${workerId}`);
 
@@ -109,12 +107,9 @@ describe('/tasks endpoints', () => {
       expect(res.body.tasks[0].prompt).toBe('Write code');
       expect(res.body.tasks[0].model).toBe('gpt-4o');
 
-      // Task should now be ASSIGNED
       const task = state.tasks.get(taskId);
       expect(task?.status).toBe('ASSIGNED');
       expect(task?.assignedWorkerId).toBe(workerId);
-
-      // Queue should be empty
       expect(state.taskQueue).toHaveLength(0);
     });
 
@@ -127,7 +122,6 @@ describe('/tasks endpoints', () => {
     });
 
     it('should skip expired tasks', async () => {
-      // Submit a task and manually expire it
       const submitRes = await request(app)
         .post('/tasks/submit')
         .send({ clientId: 'c1', prompt: 'test' });
@@ -164,7 +158,6 @@ describe('/tasks endpoints', () => {
     let taskId: string;
 
     beforeEach(async () => {
-      // Submit and assign a task
       const submitRes = await request(app)
         .post('/tasks/submit')
         .send({ clientId: 'c1', prompt: 'Write code' });
@@ -300,7 +293,6 @@ describe('/tasks endpoints', () => {
         .post('/tasks/submit')
         .send({ clientId: 'c1', prompt: 'task 2' });
 
-      // Assign one
       await request(app)
         .get(`/tasks/pending?workerId=${workerId}&limit=1`);
 
@@ -320,7 +312,6 @@ describe('/tasks endpoints', () => {
 
   describe('Full lifecycle: submit → poll → complete → retrieve', () => {
     it('should complete the full task lifecycle', async () => {
-      // 1. Client submits task
       const submitRes = await request(app)
         .post('/tasks/submit')
         .send({
@@ -335,7 +326,6 @@ describe('/tasks endpoints', () => {
       expect(submitRes.status).toBe(201);
       const taskId = submitRes.body.taskId;
 
-      // 2. Worker polls and receives task
       const pollRes = await request(app)
         .get(`/tasks/pending?workerId=${workerId}`);
 
@@ -343,7 +333,6 @@ describe('/tasks endpoints', () => {
       expect(pollRes.body.tasks[0].taskId).toBe(taskId);
       expect(pollRes.body.tasks[0].systemPrompt).toBe('You are a code generator. Output only code.');
 
-      // 3. Worker completes task
       const completeRes = await request(app)
         .post('/tasks/complete')
         .send({
@@ -357,7 +346,6 @@ describe('/tasks endpoints', () => {
 
       expect(completeRes.status).toBe(200);
 
-      // 4. Client retrieves result
       const resultRes = await request(app)
         .get(`/tasks/${taskId}/result`);
 

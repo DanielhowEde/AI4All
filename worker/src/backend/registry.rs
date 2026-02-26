@@ -31,6 +31,8 @@ pub enum BackendType {
     OpenAi,
     /// Mock backend (for testing)
     Mock,
+    /// Web crawler backend (handles WEB_CRAWL tasks)
+    Crawler,
 }
 
 impl BackendType {
@@ -43,6 +45,7 @@ impl BackendType {
             BackendType::Vulkan,
             BackendType::OpenAi,
             BackendType::Mock,
+            BackendType::Crawler,
         ]
     }
 
@@ -55,6 +58,7 @@ impl BackendType {
             BackendType::Vulkan => "vulkan",
             BackendType::OpenAi => "openai",
             BackendType::Mock => "mock",
+            BackendType::Crawler => "crawler",
         }
     }
 
@@ -65,8 +69,9 @@ impl BackendType {
             BackendType::Cuda => cfg!(feature = "cuda"),
             BackendType::Rocm => cfg!(feature = "rocm"),
             BackendType::Vulkan => cfg!(feature = "vulkan"),
-            BackendType::OpenAi => true, // Always available (HTTP-only)
+            BackendType::OpenAi => true,
             BackendType::Mock => true,
+            BackendType::Crawler => true,
         }
     }
 
@@ -79,6 +84,7 @@ impl BackendType {
             "vulkan" => Some(BackendType::Vulkan),
             "openai" => Some(BackendType::OpenAi),
             "mock" => Some(BackendType::Mock),
+            "crawler" => Some(BackendType::Crawler),
             _ => None,
         }
     }
@@ -152,6 +158,11 @@ impl BackendFactory {
             }
             BackendType::Mock => {
                 Ok(Box::new(MockBackend::new()))
+            }
+            BackendType::Crawler => {
+                Err(Error::NotSupported(
+                    "Use BackendRegistry::register_boxed to register the CrawlerBackend".to_string()
+                ))
             }
         }
     }
@@ -235,6 +246,24 @@ impl BackendRegistry {
         Ok(())
     }
 
+    /// Register a pre-built backend instance (bypasses BackendFactory).
+    ///
+    /// Use this for backends that require constructor arguments not captured
+    /// in `BackendConfig` (e.g., `CrawlerBackend`).
+    pub fn register_boxed(&self, backend_type: BackendType, backend: Box<dyn InferenceBackend>) {
+        let mut backends = self.backends.write();
+        backends.insert(backend_type, Arc::new(TokioRwLock::new(backend)));
+
+        tracing::info!(
+            backend = %backend_type,
+            "Backend registered (boxed)"
+        );
+
+        if self.default_backend.read().is_none() {
+            *self.default_backend.write() = Some(backend_type);
+        }
+    }
+
     /// Unregister a backend
     pub fn unregister(&self, backend_type: BackendType) {
         let mut backends = self.backends.write();
@@ -291,6 +320,7 @@ impl BackendRegistry {
             BackendType::Vulkan,
             BackendType::OpenAi,
             BackendType::Cpu,
+            BackendType::Crawler,
             BackendType::Mock,
         ];
 

@@ -27,6 +27,8 @@ pub enum TaskType {
     TrainingBatch,
     /// Validation task (canary verification)
     Validation,
+    /// Web crawl: fetch and extract text from URLs
+    WebCrawl,
 }
 
 impl TaskType {
@@ -40,6 +42,7 @@ impl TaskType {
             TaskType::Summarization,
             TaskType::TrainingBatch,
             TaskType::Validation,
+            TaskType::WebCrawl,
         ]
     }
 
@@ -58,6 +61,7 @@ impl TaskType {
             TaskType::Summarization => 4096,
             TaskType::TrainingBatch => 8192,
             TaskType::Validation => 4096,
+            TaskType::WebCrawl => 0,
         }
     }
 }
@@ -72,6 +76,7 @@ impl std::fmt::Display for TaskType {
             TaskType::Summarization => write!(f, "summarization"),
             TaskType::TrainingBatch => write!(f, "training_batch"),
             TaskType::Validation => write!(f, "validation"),
+            TaskType::WebCrawl => write!(f, "web_crawl"),
         }
     }
 }
@@ -457,6 +462,68 @@ pub struct ValidationOutput {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Web Crawl
+// ─────────────────────────────────────────────────────────────────
+
+/// Input for web crawl task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebCrawlInput {
+    /// Seed URL to start crawling from
+    pub url: String,
+
+    /// BFS depth: 0 = seed page only, 1 = seed + all linked pages, etc.
+    #[serde(default = "default_max_depth")]
+    pub max_depth: u32,
+
+    /// Maximum total pages to fetch (safety cap)
+    #[serde(default = "default_max_pages")]
+    pub max_pages: u32,
+
+    /// Whether to generate vector embeddings for each page
+    #[serde(default)]
+    pub generate_embeddings: bool,
+
+    /// Restrict link-following to these domains (empty = no restriction)
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+}
+
+fn default_max_depth() -> u32 { 1 }
+fn default_max_pages() -> u32 { 50 }
+
+/// A single crawled page result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrawledPage {
+    /// The URL that was fetched
+    pub url: String,
+    /// Page title (from <title> element)
+    pub title: Option<String>,
+    /// Extracted clean text content
+    pub text: String,
+    /// Vector embedding (if generate_embeddings was true)
+    pub embedding: Option<Vec<f32>>,
+    /// Outbound links found on the page
+    pub links: Vec<String>,
+    /// ISO-8601 timestamp when the page was fetched
+    pub fetched_at: String,
+    /// Hex SHA-256 of the extracted text (for dedup)
+    pub content_hash: String,
+}
+
+/// Output from web crawl task
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebCrawlOutput {
+    /// All successfully crawled pages
+    pub pages: Vec<CrawledPage>,
+    /// Total pages fetched (including any that were empty/skipped)
+    pub total_fetched: u32,
+    /// Sum of all page text lengths in characters
+    pub total_text_chars: u64,
+    /// Non-fatal errors (e.g., individual pages that failed to fetch)
+    pub errors: Vec<String>,
+}
+
+// ─────────────────────────────────────────────────────────────────
 // Unified Task Input/Output
 // ─────────────────────────────────────────────────────────────────
 
@@ -478,6 +545,8 @@ pub enum TaskInput {
     TrainingBatch(TrainingBatchInput),
     #[serde(rename = "VALIDATION")]
     Validation(ValidationInput),
+    #[serde(rename = "WEB_CRAWL")]
+    WebCrawl(WebCrawlInput),
 }
 
 impl TaskInput {
@@ -491,6 +560,7 @@ impl TaskInput {
             TaskInput::Summarization(_) => TaskType::Summarization,
             TaskInput::TrainingBatch(_) => TaskType::TrainingBatch,
             TaskInput::Validation(_) => TaskType::Validation,
+            TaskInput::WebCrawl(_) => TaskType::WebCrawl,
         }
     }
 }
@@ -513,6 +583,8 @@ pub enum TaskOutput {
     TrainingBatch(TrainingBatchOutput),
     #[serde(rename = "VALIDATION")]
     Validation(ValidationOutput),
+    #[serde(rename = "WEB_CRAWL")]
+    WebCrawl(WebCrawlOutput),
 }
 
 impl TaskOutput {
@@ -526,6 +598,7 @@ impl TaskOutput {
             TaskOutput::Summarization(_) => TaskType::Summarization,
             TaskOutput::TrainingBatch(_) => TaskType::TrainingBatch,
             TaskOutput::Validation(_) => TaskType::Validation,
+            TaskOutput::WebCrawl(_) => TaskType::WebCrawl,
         }
     }
 
@@ -539,6 +612,7 @@ impl TaskOutput {
             TaskOutput::Summarization(o) => Some(&o.usage),
             TaskOutput::TrainingBatch(_) => None,
             TaskOutput::Validation(_) => None,
+            TaskOutput::WebCrawl(_) => None,
         }
     }
 }

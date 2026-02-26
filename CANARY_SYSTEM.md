@@ -2,342 +2,165 @@
 
 ## Overview
 
-Canary blocks (also called "honeypots") are special blocks randomly inserted into the work queue with **known-correct answers**. They look identical to normal blocks from the contributor's perspective, but the system knows the expected result.
+Canary blocks (honeypots) are special blocks randomly inserted into the work queue with **known-correct answers**. They look identical to normal blocks from the contributor's perspective, but the system knows the expected result.
 
-## Purpose
-
-1. **Detect Cheaters**: Contributors who claim to complete blocks without actually processing them will fail canaries
-2. **Prevent Auto-claiming**: Bots that auto-accept blocks and return random results get caught
-3. **Validate Processing**: Ensures contributors are genuinely running the AI models
-4. **Maintain Network Integrity**: Bad actors are automatically penalized without manual intervention
+**Purpose**: Detect cheaters, prevent auto-claiming, validate genuine AI processing, and maintain network integrity—automatically, without manual intervention.
 
 ## How It Works
 
 ### 1. Canary Distribution (10% of blocks by default)
 
 ```typescript
-import { shouldBeCanary, selectCanaryBlocks } from './canaryGenerator';
-
-// System decides which blocks are canaries
-const blockId = 'block_abc123';
-const config = { canaryPercentage: 0.10, seed: 42 };
-
+const config = { canaryPercentage: 0.10, seed: dailySeed };
 if (shouldBeCanary(blockId, config)) {
-  // This is a canary - set known-correct answer
+  // This is a canary — system knows the correct answer
 }
 ```
 
 ### 2. Contributor Completes Block
 
 ```typescript
-const completedBlock: CompletedBlock = {
+const completed: CompletedBlock = {
   blockType: BlockType.INFERENCE,
   resourceUsage: 0.8,
-  difficultyMultiplier: 1.0,
-  validationPassed: true,
-  timestamp: new Date(),
   isCanary: true,
   canaryAnswerCorrect: false, // ← Contributor got it wrong!
 };
 ```
 
-### 3. Points Calculation
+### 3. Failed Canary → 0 Points + Penalty
 
 ```typescript
-import { calculateBlockPoints } from './computePoints';
-
-// Failed canary = 0 points
-const points = calculateBlockPoints(completedBlock);
-// Result: 0 (even though validation passed)
+// Failed canary = 0 points even if validation otherwise "passed"
+const points = calculateBlockPoints(completed); // → 0
 ```
 
-### 4. Reputation Penalty
+### 4. 24-Hour Block (Immediate)
+
+After each canary failure the contributor is immediately blocked from receiving **any** rewards for 24 hours:
 
 ```typescript
-import { calculateReputationWithCanaryPenalty } from './computePoints';
+// 10:00 AM: Bob fails canary
+bob.lastCanaryFailureTime = new Date('2026-01-28T10:00:00Z');
 
-const contributor = {
-  accountId: 'acc_123',
-  reputationMultiplier: 1.0, // Start at 100%
-  canaryFailures: 2, // Failed 2 canaries
-  completedBlocks: [...]
-};
+// 2:00 PM same day: Still blocked
+isActiveContributor(bob, config, new Date('2026-01-28T14:00:00Z')); // false
 
-const config = {
-  canaryFailurePenalty: 0.1, // -10% per failure
-  canaryMaxFailures: 3, // Banned at 3
-  ...
-};
+// 10:01 AM next day: Block expires
+isActiveContributor(bob, config, new Date('2026-01-29T10:01:00Z')); // true
+```
 
-const effectiveReputation = calculateReputationWithCanaryPenalty(
-  contributor.reputationMultiplier,
-  contributor.canaryFailures,
-  config
+### 5. Progressive Reputation Penalty (Permanent Until Reformed)
+
+```typescript
+// -10% reputation per failure, 0% = permanent ban
+const effective = calculateReputationWithCanaryPenalty(
+  contributor.reputationMultiplier, // e.g., 1.0
+  contributor.canaryFailures,       // e.g., 2
+  config                            // canaryFailurePenalty: 0.1
 );
-
-// Result: 1.0 - (2 × 0.1) = 0.8 (80% reputation)
+// Result: 1.0 - (2 × 0.1) = 0.8
 ```
 
-### 5. Immediate 24-Hour Block
+| Failure | Immediate Effect | Long-Term Effect |
+|---------|-----------------|-----------------|
+| 1st | Blocked 24h | −10% reputation (90% future rewards) |
+| 2nd | Blocked 24h | −20% reputation (80% future rewards) |
+| 3rd | Blocked 24h | Permanent ban (0% reputation) |
+
+## Reward Calculation: Canaries Excluded
+
+Canary blocks (both passed and failed) do **not** count toward performance pool points. Only real work blocks earn rewards.
 
 ```typescript
-import { isBlockedByRecentCanaryFailure } from './computePoints';
+// calculateRewardPoints() excludes all canary blocks
+export function calculateRewardPoints(contributor: Contributor): number {
+  return contributor.completedBlocks
+    .filter(block => !block.isCanary)
+    .reduce((total, block) => total + calculateBlockPoints(block), 0);
+}
 
-// After failing a canary, contributor is immediately blocked for 24h
-const contributor = {
-  accountId: 'acc_123',
-  lastCanaryFailureTime: new Date('2026-01-27T12:00:00Z'),
-  // ... other fields
-};
-
-const currentTime = new Date('2026-01-27T18:00:00Z'); // 6 hours later
-const config = { canaryBlockDurationMs: 24 * 60 * 60 * 1000, ... };
-
-if (isBlockedByRecentCanaryFailure(contributor, config, currentTime)) {
-  // Contributor cannot receive ANY rewards for 24h
-  // This applies even if they complete valid work during the block period
+// calculatePerformanceWeight() uses reward points (not total compute points)
+export function calculatePerformanceWeight(contributor: Contributor): number {
+  return Math.sqrt(calculateRewardPoints(contributor));
 }
 ```
 
-### 6. Ban After Max Failures
+**Example**: 90 real work blocks + 10 canaries → reward points from the 90 blocks only.
+
+**Why exclude passed canaries?** Canaries are validation tests, not productive work. Everyone gets the same base canary rate, so excluding them is fair. Honest contributors naturally pass canaries and earn fewer over time (via the rehabilitation system), meaning more of their blocks count as real work.
+
+**Edge case**: A contributor who only completed canaries (no real work) gets 0 performance pool tokens but still receives the base pool share (the fairness floor).
+
+## Rehabilitation: Dynamic Canary Rates
+
+Instead of permanent bans after 3 failures, the system uses **adaptive scrutiny**. Canary rates adjust per contributor based on their history:
+
+```
+canary_rate = base + (failures × increase_per_failure) − (passes × decrease_per_pass)
+canary_rate = clamp(canary_rate, min_rate, max_rate)
+```
+
+**Default**: base 10%, +5% per failure, −2% per pass, max 50%, min 5%.
+
+| Failures | Passes | Rate | Meaning |
+|----------|--------|------|---------|
+| 0 | 0 | 10% | Clean contributor |
+| 3 | 0 | 25% | Repeat offender, heavy scrutiny |
+| 3 | 5 | 15% | Reforming |
+| 3 | 10 | 5% | Fully rehabilitated (clamped to min) |
 
 ```typescript
-// After 3 failed canaries, reputation goes to 0 (permanent ban)
-if (canaryFailures >= 3) {
-  // Contributor is permanently banned from receiving rewards
-  isActiveContributor(contributor, config); // Returns false
-}
+const personalizedRate = calculateDynamicCanaryRate(contributor, config);
+// e.g., canaryFailures=2, canaryPasses=3 → 0.10 + 0.10 − 0.06 = 14%
 ```
 
-## Penalty System
-
-Canary failures trigger a **two-tier penalty system**:
-
-### Tier 1: Immediate 24-Hour Block (Per Failure)
-
-**Triggered**: After EACH canary failure
-**Duration**: 24 hours from failure timestamp
-**Effect**:
-- Contributor cannot receive ANY rewards during block period
-- Work completed during block is wasted (no points, no tokens)
-- Block expires automatically after 24h
-- Multiple failures = multiple 24h blocks (blocks don't stack, most recent applies)
-
-**Example**:
-```
-Fail canary at 12:00 PM → Blocked until 12:00 PM next day
-Complete 100 blocks during block period → 0 rewards
-After 24h expires → Can earn rewards again (if under max failures)
-```
-
-### Tier 2: Progressive Reputation Penalties (Cumulative)
-
-**Triggered**: Accumulated canary failures
-**Duration**: Permanent (until reputation system reset, if implemented)
-**Effect**:
-- 1st failure: -10% reputation (24h block + 90% future rewards)
-- 2nd failure: -20% reputation (24h block + 80% future rewards)
-- 3rd failure: Permanent ban (reputation → 0, cannot earn rewards ever)
-
-**Example**:
-```
-Start: 100% reputation, earning 1000 points/day = 1000 reward
-Fail 1 canary: 90% reputation, blocked 24h, then earn 900 reward/day
-Fail 2 canary: 80% reputation, blocked 24h, then earn 800 reward/day
-Fail 3 canary: 0% reputation, permanent ban, 0 rewards forever
-```
-
-### Why Two Tiers?
-
-- **24h block**: Immediate deterrent, fast feedback, prevents rapid retries
-- **Reputation penalty**: Long-term consequence, discourages repeat offenses
-- **Combined effect**: Strong anti-gaming protection without false-positive risk
+**Key insight**: At 50% scrutiny, a cheater gets a canary in every other block, and each failure triggers a 24h block. Cheating becomes economically unviable—honest work always pays better.
 
 ## Key Properties
 
-### Deterministic
+**Deterministic**: `shouldBeCanary(blockId, { seed: 42 })` always returns the same result. No database needed to store canary flags; they can be recomputed for auditing.
 
-The same `blockId` + `seed` always produces the same canary decision:
+**Undetectable**: Canaries use the same block format, difficulty, and resource requirements as normal blocks. The 10% rate looks like natural variation.
 
-```typescript
-shouldBeCanary('block_123', { canaryPercentage: 0.1, seed: 42 }); // true
-shouldBeCanary('block_123', { canaryPercentage: 0.1, seed: 42 }); // true (always)
-```
-
-This allows:
-- **Auditing**: Verify which blocks were canaries after the fact
-- **Reproducibility**: Disputes can be resolved by replaying the logic
-- **No Database**: Don't need to store canary flags, can recompute them
-
-### Undetectable
-
-Contributors cannot distinguish canaries from normal blocks:
-- Same block format
-- Same difficulty
-- Same resource requirements
-- Random distribution (10% looks like natural variation)
-
-### No False Positives
-
-Honest contributors who actually process blocks will naturally pass canaries:
-- If you run the model, you get the correct answer
-- Canaries test the same skills as normal blocks
-- No trick questions or edge cases
+**No false positives**: Honest contributors who actually run the AI model get canaries correct automatically. Canaries test the same skills as normal work.
 
 ## Configuration
 
-### Recommended Settings
-
 ```typescript
-// Production configuration
-const productionConfig: RewardConfig = {
-  canaryFailurePenalty: 0.1, // -10% reputation per failure
-  canaryMaxFailures: 3, // 3 strikes and you're out
-  canaryBlockDurationMs: 24 * 60 * 60 * 1000, // 24 hours
-  ...
-};
-
-const canaryDistribution: CanaryConfig = {
-  canaryPercentage: 0.10, // 10% of blocks
-  seed: dailySeed, // Rotate daily for unpredictability
+// Default production settings
+const config = {
+  canaryFailurePenalty: 0.1,           // −10% reputation per failure
+  canaryBlockDurationMs: 86_400_000,   // 24h block after each failure
+  baseCanaryPercentage: 0.10,          // 10% base rate
+  canaryIncreasePerFailure: 0.05,      // +5% rate per failure
+  canaryDecreasePerPass: 0.02,         // −2% rate per pass
+  maxCanaryPercentage: 0.50,           // Cap at 50%
+  minCanaryPercentage: 0.05,           // Floor at 5% (always monitored)
 };
 ```
 
-### Tuning Guidelines
-
-| Metric | Low Security | Medium Security | High Security |
-|--------|--------------|-----------------|---------------|
-| Canary % | 5% | 10% | 15-20% |
-| Penalty | -5% | -10% | -20% |
-| Max Failures | 5 | 3 | 2 |
-| Block Duration | 12h | 24h | 48h |
-
-**Trade-offs**:
-- **Higher canary %**: More detection, but more "wasted" compute
-- **Higher penalty**: Faster bad actor removal, but harsher on mistakes
-- **Lower max failures**: Stricter security, but less forgiving of honest errors
-- **Longer block duration**: Stronger immediate deterrent, but more disruptive to honest mistakes
-
-## Example: Full Workflow
-
-```typescript
-// Day 1: Contributor joins
-const contributor = {
-  accountId: 'alice',
-  reputationMultiplier: 1.0,
-  canaryFailures: 0,
-  completedBlocks: [],
-};
-
-// System distributes 10 blocks, 1 is a canary
-const blocks = ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b8', 'b9', 'b10'];
-const canaries = selectCanaryBlocks(blocks); // ['b3']
-
-// Alice completes all blocks
-// She actually runs the AI, so she passes the canary
-blocks.forEach(blockId => {
-  const isCanary = canaries.includes(blockId);
-  const completed: CompletedBlock = {
-    // ... Alice's work ...
-    isCanary,
-    canaryAnswerCorrect: isCanary ? true : undefined, // Correct!
-  };
-  contributor.completedBlocks.push(completed);
-});
-
-// Result: Alice earns full rewards
-calculateEffectiveComputePoints(contributor); // Full points
-isActiveContributor(contributor, config); // true
-
-// Day 2: Bob tries to cheat at 10:00 AM
-const bob = {
-  accountId: 'bob',
-  reputationMultiplier: 1.0,
-  canaryFailures: 0,
-  lastCanaryFailureTime: undefined,
-  completedBlocks: [],
-};
-
-// Bob auto-claims blocks without processing
-blocks.forEach(blockId => {
-  const isCanary = canaries.includes(blockId);
-  const completed: CompletedBlock = {
-    // ... Bob's fake work ...
-    timestamp: new Date('2026-01-28T10:00:00Z'),
-    isCanary,
-    canaryAnswerCorrect: isCanary ? false : undefined, // Wrong!
-  };
-  bob.completedBlocks.push(completed);
-});
-
-// Result: Bob earns 0 points on canary, loses 10% reputation, BLOCKED for 24h
-countFailedCanaries(bob); // 1
-bob.lastCanaryFailureTime = new Date('2026-01-28T10:00:00Z');
-calculateReputationWithCanaryPenalty(bob.reputationMultiplier, 1, config); // 0.9
-
-// Bob tries to claim more work at 2:00 PM (4 hours later)
-const currentTime = new Date('2026-01-28T14:00:00Z');
-isActiveContributor(bob, config, currentTime); // false (still blocked)
-
-// Day 3 (26 hours later): Bob's block expires at 10:00 AM
-const nextDay = new Date('2026-01-29T10:01:00Z');
-isActiveContributor(bob, config, nextDay); // true (if he has valid work)
-// But he now only earns 90% rewards due to reputation penalty
-
-// Bob cheats again and fails 2 more canaries
-bob.canaryFailures = 3;
-
-// Result: Bob is permanently banned
-isActiveContributor(bob, config); // false (forever)
-```
+| Setting | Low Security | Standard | High Security |
+|---------|-------------|----------|---------------|
+| Canary % | 5% | 10% | 15–20% |
+| Penalty | −5% | −10% | −20% |
+| Block duration | 12h | 24h | 48h |
+| Max rate | 30% | 50% | 70% |
 
 ## Security Considerations
 
-### Attack: Sybil Splitting
-**Defense**: Canaries are per-block, not per-account. Splitting work across multiple accounts doesn't help.
+**Sybil splitting**: Canaries are per-block, not per-account. Splitting across accounts doesn't help—each account gets independently scrutinised.
 
-### Attack: Canary Detection
-**Defense**: Distribution is deterministic but unpredictable without the seed. Seed rotates daily.
+**Canary detection**: Distribution is deterministic but requires the daily seed (which is secret until the day closes). Seed rotation prevents pre-computation.
 
-### Attack: Shared Answers
-**Defense**: Canaries should use unique, per-block correct answers. Even if attackers share a database, each canary is different.
+**Shared answers**: Each canary should have a unique per-block correct answer. Even if cheaters share a database of answers, each canary differs.
 
-### Attack: Partial Processing
-**Defense**: Canaries test full end-to-end processing, not just input validation.
-
-## Implementation Checklist
-
-- [x] Canary block type definitions
-- [x] Deterministic canary selection
-- [x] Points calculation with canary checks
-- [x] Reputation penalty system
-- [x] 24-hour block after canary failure
-  - [x] Track last failure timestamp
-  - [x] Check if contributor is currently blocked
-  - [x] Automatic block expiration after 24h
-- [x] Ban logic for max failures
-- [x] Audit functions (count failures, check distribution)
-- [x] Comprehensive unit tests (70+ test cases)
-- [ ] Canary answer generation (Milestone 2+)
-- [ ] Daily seed rotation (Milestone 2+)
-- [ ] Canary performance monitoring dashboard
+**Rapid cycling**: Passing canaries decreases scrutiny by only −2% each. Recovering from 3 failures takes ~10 passed canaries, but a single re-failure adds back +5%. Cheating negates progress.
 
 ## Testing
 
-Run canary tests:
 ```bash
-npm test -- canaryGenerator.test.ts
+npm test -- canaryGenerator.test.ts dynamicCanary.test.ts
 ```
 
-Test coverage includes:
-- Deterministic random generation
-- Distribution percentage accuracy
-- Edge cases (0%, 100%, empty inputs)
-- Reputation calculation
-- Ban logic
-- Integration with compute points
-
-## References
-
-- Original design doc: AI4All Reward Distribution Design Specification v1.0
-- Anti-Gaming Safeguards section
+Coverage includes: deterministic generation, distribution percentage accuracy, reputation penalties, 24h block timing edge cases, ban logic, dynamic rate calculation, rehabilitation progression, and integration with compute points and reward distribution.

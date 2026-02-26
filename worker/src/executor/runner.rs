@@ -329,6 +329,10 @@ async fn run_inference(
             let output = backend_guard.validate(input.clone()).await?;
             Ok(TaskOutput::Validation(output))
         }
+        TaskInput::WebCrawl(input) => {
+            let output = backend_guard.web_crawl(input.clone()).await?;
+            Ok(TaskOutput::WebCrawl(output))
+        }
     }
 }
 

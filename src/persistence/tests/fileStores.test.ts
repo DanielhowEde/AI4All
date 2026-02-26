@@ -420,17 +420,17 @@ describe('FileOperationalStore', () => {
     fs.rmSync(dataDir, { recursive: true, force: true });
   });
 
-  it('saves and loads node keys', () => {
+  it('saves and loads public keys', () => {
     const keys = new Map([['node-1', 'key-abc'], ['node-2', 'key-def']]);
-    store.saveNodeKeys(keys);
-    const loaded = store.loadNodeKeys();
+    store.savePublicKeys(keys);
+    const loaded = store.loadPublicKeys();
     expect(loaded.get('node-1')).toBe('key-abc');
     expect(loaded.get('node-2')).toBe('key-def');
     expect(loaded.size).toBe(2);
   });
 
-  it('returns empty map when no node keys saved', () => {
-    expect(store.loadNodeKeys().size).toBe(0);
+  it('returns empty map when no public keys saved', () => {
+    expect(store.loadPublicKeys().size).toBe(0);
   });
 
   it('saves and loads devices', () => {
@@ -481,15 +481,15 @@ describe('FileOperationalStore', () => {
   });
 
   it('partial writes are atomic — no corrupt operational.json', () => {
-    const keys = new Map([['node-1', 'key']]);
-    store.saveNodeKeys(keys);
+    const keys = new Map([['ai4anode1', 'deadbeef']]);
+    store.savePublicKeys(keys);
     // Tmp file should be gone after successful write
     const tmpFile = path.join(dataDir, 'operational.json.tmp');
     expect(fs.existsSync(tmpFile)).toBe(false);
     expect(fs.existsSync(path.join(dataDir, 'operational.json'))).toBe(true);
   });
 
-  it('fields are independent — saving node keys does not wipe day phase', () => {
+  it('fields are independent — saving public keys does not wipe day phase', () => {
     store.saveDayPhase({
       dayPhase: 'ACTIVE',
       currentDayId: '2026-01-28',
@@ -497,16 +497,15 @@ describe('FileOperationalStore', () => {
       rosterAccountIds: [],
       canaryBlockIds: [],
     });
-    store.saveNodeKeys(new Map([['n1', 'k1']]));
-    // Day phase should still be there
+    store.savePublicKeys(new Map([['ai4anode1', 'pubhex1']]));
     expect(store.loadDayPhase()?.dayPhase).toBe('ACTIVE');
-    expect(store.loadNodeKeys().get('n1')).toBe('k1');
+    expect(store.loadPublicKeys().get('ai4anode1')).toBe('pubhex1');
   });
 
   it('persists across store instances', () => {
-    store.saveNodeKeys(new Map([['n1', 'key1']]));
+    store.savePublicKeys(new Map([['ai4anode1', 'pubhex1']]));
     const store2 = new FileOperationalStore(dataDir);
-    expect(store2.loadNodeKeys().get('n1')).toBe('key1');
+    expect(store2.loadPublicKeys().get('ai4anode1')).toBe('pubhex1');
   });
 });
 
@@ -708,7 +707,7 @@ describe('E2E: file persistence across restarts', () => {
 
       await events.append([makeEvent('2026-01-28', 0, 'NODE_REGISTERED', 'alice')]);
       await events.append([makeEvent('2026-01-28', 1, 'WORK_ASSIGNED', 'alice')]);
-      ops.saveNodeKeys(new Map([['alice', 'nodekey-abc']]));
+      ops.savePublicKeys(new Map([['alice', 'nodekey-abc']]));
       ops.saveDayPhase({
         dayPhase: 'ACTIVE',
         currentDayId: '2026-01-28',
@@ -729,8 +728,8 @@ describe('E2E: file persistence across restarts', () => {
       expect(phase?.dayPhase).toBe('ACTIVE');
       expect(phase?.currentDaySeed).toBe(777);
 
-      const nodeKeys = ops.loadNodeKeys();
-      expect(nodeKeys.get('alice')).toBe('nodekey-abc');
+      const publicKeys = ops.loadPublicKeys();
+      expect(publicKeys.get('alice')).toBe('nodekey-abc');
 
       const dayEvents = await events.queryByDay('2026-01-28');
       expect(dayEvents).toHaveLength(2);

@@ -1,0 +1,140 @@
+# AI4All Worker Configuration
+#
+# Copy this file to ai4all-worker.toml (or ~/.ai4all/worker.toml)
+# and fill in your account_id, node_key, and coordinator URL.
+#
+# Config search order (first found wins):
+#   1. --config <path>  (CLI flag)
+#   2. ./ai4all-worker.toml
+#   3. ./config.toml
+#   4. ~/.config/ai4all/worker.toml
+#   5. ~/.ai4all/worker.toml
+#   6. /etc/ai4all/worker.toml
+#
+# Environment variable overrides use the AI4ALL_* prefix, e.g.:
+#   AI4ALL_COORDINATOR_URL=ws://192.168.1.10:3000
+#   AI4ALL_ACCOUNT_ID=ai4a...
+#   AI4ALL_SECRET_KEY=<hex ML-DSA-65 secret key>
+
+# ── Worker identity ───────────────────────────────────────────────
+
+[worker]
+# Your wallet address — from: npm run wallet:create
+# account_id = "ai4a..."
+
+# Your ML-DSA-65 secret key (hex) — from your wallet identity file (secretKey field)
+# secret_key = "<hex secret key from wallets/*.identity.json>"
+
+# Optional human-readable label shown in server logs
+# name = "gpu-box-1"
+
+# Tags used for future work filtering (leave empty for now)
+tags = []
+
+# ── Coordinator connection ────────────────────────────────────────
+#
+# The coordinator URL must use ws:// or wss://.
+# The worker derives the HTTP base URL from it automatically:
+#   ws://host:port  →  http://host:port   (REST + task polling)
+#   wss://host      →  https://host
+#
+# If the backend server has no WebSocket endpoint the WebSocket
+# attempts will log warnings and retry in the background; HTTP
+# task polling still works normally.
+
+[coordinator]
+# Replace with your server's IP or hostname + port
+url = "ws://YOUR_SERVER_IP:3000"
+
+# Reconnect interval (milliseconds)
+reconnect_interval_ms = 5000
+
+# 0 = retry indefinitely
+max_reconnect_attempts = 0
+
+# Connection timeout (milliseconds)
+connect_timeout_ms = 30000
+
+# Heartbeat interval (milliseconds)
+heartbeat_interval_ms = 30000
+
+# ── AI inference backend ──────────────────────────────────────────
+#
+# The worker submits prompts to an OpenAI-compatible API.
+# Supported: OpenAI, Ollama, vLLM, LM Studio, Mistral API, etc.
+
+[openai]
+enabled = true
+
+# Ollama (local, free):
+base_url = "http://localhost:11434/v1"
+api_key = ""
+default_model = "llama3"
+
+# OpenAI (cloud):
+# base_url = "https://api.openai.com/v1"
+# api_key = "sk-..."
+# default_model = "gpt-4o-mini"
+
+# vLLM / LM Studio (self-hosted):
+# base_url = "http://localhost:8000/v1"
+# api_key = ""
+# default_model = "mistralai/Mistral-7B-Instruct-v0.2"
+
+# Request timeout in seconds (increase for large models)
+timeout_secs = 120
+
+# Retries on transient HTTP errors
+max_retries = 2
+
+# ── Peer-to-peer mesh ─────────────────────────────────────────────
+
+[peer]
+# Enable direct P2P connections between workers
+enabled = true
+
+# TCP listen port (0 = OS-assigned random port)
+listen_port = 0
+
+# Maximum simultaneous peer connections
+max_peers = 32
+
+# Auto-connect to peers found in the coordinator directory
+auto_connect = true
+
+# Stale peer timeout in milliseconds (default 60 s)
+stale_timeout_ms = 60000
+
+# ── Resource limits ───────────────────────────────────────────────
+
+[resources]
+# Maximum RAM the worker may use (MB)
+max_memory_mb = 8192
+
+# CPU thread count (0 = auto-detect all cores)
+max_threads = 0
+
+# GPU acceleration (set false on CPU-only machines)
+enable_gpu = true
+
+# Maximum GPU utilization percentage
+max_gpu_percent = 75
+
+# ── Logging ───────────────────────────────────────────────────────
+
+[logging]
+# trace | debug | info | warn | error
+level = "info"
+
+# Optional log file (comment out to log to stdout only)
+# file = "~/.ai4all/worker/worker.log"
+
+# JSON-structured logs (useful with log aggregators)
+json_format = false
+
+# ── Storage paths ─────────────────────────────────────────────────
+
+[storage]
+data_dir  = "~/.ai4all/worker"
+model_dir = "~/.ai4all/worker/models"
+temp_dir  = "~/.ai4all/worker/temp"

@@ -168,7 +168,7 @@ export function calculateDailyRewards(
       performancePoolReward: performanceReward,
       luckPoolReward: 0,
       totalReward,
-      reason: `Base: ${formatTokens(baseRewardMicro, 2)} (equal share) + Performance: ${formatTokens(performanceRewardMicro, 2)} (${rewardPoints.toFixed(0)} points → ${sqrtWeight.toFixed(2)} weight) = ${formatTokens(totalRewardMicro, 2)} tokens`,
+      reason: `Base: ${formatTokens(baseRewardMicro)} (equal share) + Performance: ${formatTokens(performanceRewardMicro)} (${rewardPoints.toFixed(0)} points → ${sqrtWeight.toFixed(2)} weight) = ${formatTokens(totalRewardMicro)} tokens`,
     });
   }
 

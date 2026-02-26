@@ -23,7 +23,7 @@ async function main() {
     state = await restoreApiState(fileStores);
     console.log(
       `State restored: day ${state.networkState.dayNumber}, phase ${state.dayPhase}, ` +
-      `${state.networkState.contributors.size} contributors, ${state.nodeKeys.size} nodeKeys`
+      `${state.networkState.contributors.size} contributors, ${state.publicKeys.size} publicKeys`
     );
   } else {
     const stores = createInMemoryStores();

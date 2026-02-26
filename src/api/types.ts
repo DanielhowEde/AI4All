@@ -23,12 +23,12 @@ export interface SubmissionResultItem {
 
 export interface RegisterNodeRequest {
   accountId: string;
+  publicKey: string; // hex-encoded ML-DSA-65 public key (3904 chars = 1952 bytes)
 }
 
 export interface RegisterNodeResponse {
   success: boolean;
   accountId: string;
-  nodeKey: string;
   message: string;
 }
 
@@ -38,7 +38,8 @@ export interface RegisterNodeResponse {
 
 export interface HeartbeatRequest {
   accountId: string;
-  nodeKey: string;
+  timestamp: string;  // ISO-8601, ±30s window
+  signature: string;  // hex-encoded ML-DSA-65 signature over "AI4ALL:v1:{accountId}:{timestamp}"
 }
 
 export interface HeartbeatResponse {
@@ -81,7 +82,8 @@ export interface DayStatusResponse {
 
 export interface WorkRequestRequest {
   accountId: string;
-  nodeKey: string;
+  timestamp: string;
+  signature: string;
 }
 
 export interface WorkRequestResponse {
@@ -97,7 +99,8 @@ export interface WorkRequestResponse {
 
 export interface WorkSubmitRequest {
   accountId: string;
-  nodeKey: string;
+  timestamp: string;
+  signature: string;
   dayId?: string; // Optional: rejected if != currentDayId
   submissions: Array<{
     blockId: string;
@@ -281,7 +284,8 @@ export interface WorkerCapabilities {
 
 export interface PeerRegisterRequest {
   accountId: string;
-  nodeKey: string;
+  timestamp: string;
+  signature: string;
   listenAddr: string;
   capabilities?: WorkerCapabilities;
 }
@@ -344,6 +348,8 @@ export const ErrorCodes = {
   DUPLICATE_NODE: 'DUPLICATE_NODE',
   NODE_NOT_FOUND: 'NODE_NOT_FOUND',
   INVALID_NODE_KEY: 'INVALID_NODE_KEY',
+  INVALID_SIGNATURE: 'INVALID_SIGNATURE',
+  MISSING_PUBLIC_KEY: 'MISSING_PUBLIC_KEY',
   MISSING_ADMIN_KEY: 'MISSING_ADMIN_KEY',
   INVALID_ADMIN_KEY: 'INVALID_ADMIN_KEY',
   DAY_NOT_STARTED: 'DAY_NOT_STARTED',
@@ -490,4 +496,31 @@ export interface TaskResultResponse {
 export interface TaskListResponse {
   success: boolean;
   tasks: TaskRecord[];
+}
+
+// ============================================================================
+// Data Ingest (Crawler → Coordinator)
+// ============================================================================
+
+export interface CrawledPageData {
+  url: string;
+  title?: string;
+  text: string;
+  embedding?: number[];
+  fetchedAt: string;
+  contentHash: string;
+  workerAccountId?: string;
+}
+
+export interface DataIngestRequest {
+  accountId: string;
+  timestamp: string;
+  signature: string;
+  pages: CrawledPageData[];
+}
+
+export interface DataIngestResponse {
+  success: boolean;
+  accepted: number;
+  reward: string;
 }

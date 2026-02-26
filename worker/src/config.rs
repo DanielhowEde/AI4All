@@ -44,6 +44,9 @@ pub struct WorkerConfig {
 
     /// OpenAI-compatible API backend settings
     pub openai: OpenAiSettings,
+
+    /// Web crawler settings
+    pub crawler: CrawlerSettings,
 }
 
 /// Worker identity settings
@@ -66,9 +69,9 @@ pub struct WorkerSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
 
-    /// Node key for authentication (returned by POST /nodes/register)
+    /// ML-DSA-65 secret key (hex) for signing requests to the coordinator
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub node_key: Option<String>,
+    pub secret_key: Option<String>,
 }
 
 /// Coordinator connection settings
@@ -236,6 +239,36 @@ pub struct PluginSettings {
     pub download_timeout_secs: u64,
 }
 
+/// Web crawler settings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CrawlerSettings {
+    /// Enable web crawling capability (coordinator-assigned tasks always work when registered)
+    pub enabled: bool,
+
+    /// Seed URLs for autonomous background crawling
+    #[serde(default)]
+    pub seeds: Vec<String>,
+
+    /// BFS depth for autonomous crawls (0 = seed page only, 1 = seed + linked pages)
+    pub depth: u32,
+
+    /// Maximum pages per seed per crawl run (safety cap)
+    pub max_pages: u32,
+
+    /// Minimum milliseconds between requests to the same domain
+    pub rate_limit_ms: u64,
+
+    /// Respect robots.txt exclusions
+    pub respect_robots: bool,
+
+    /// User-Agent header (empty = "AI4All/{version}")
+    pub user_agent: String,
+
+    /// Generate vector embeddings for crawled pages (requires [openai] backend)
+    pub generate_embeddings: bool,
+}
+
 // Default implementations
 
 impl Default for WorkerConfig {
@@ -250,6 +283,22 @@ impl Default for WorkerConfig {
             storage: StorageSettings::default(),
             peer: PeerSettings::default(),
             openai: OpenAiSettings::default(),
+            crawler: CrawlerSettings::default(),
+        }
+    }
+}
+
+impl Default for CrawlerSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            seeds: vec![],
+            depth: 1,
+            max_pages: 50,
+            rate_limit_ms: 1000,
+            respect_robots: true,
+            user_agent: String::new(), // resolved to "AI4All/{version}" at runtime
+            generate_embeddings: false,
         }
     }
 }
@@ -261,7 +310,7 @@ impl Default for WorkerSettings {
             name: None,
             tags: vec![],
             account_id: None,
-            node_key: None,
+            secret_key: None,
         }
     }
 }
@@ -446,8 +495,8 @@ impl WorkerConfig {
         if let Ok(val) = std::env::var("AI4ALL_ACCOUNT_ID") {
             self.worker.account_id = Some(val);
         }
-        if let Ok(val) = std::env::var("AI4ALL_NODE_KEY") {
-            self.worker.node_key = Some(val);
+        if let Ok(val) = std::env::var("AI4ALL_SECRET_KEY") {
+            self.worker.secret_key = Some(val);
         }
 
         // Coordinator settings
@@ -789,6 +838,28 @@ timeout_secs = 120
 
 # Maximum retries on transient failures
 max_retries = 2
+
+[crawler]
+# Enable web crawling (coordinator-assigned WEB_CRAWL tasks always work when registered)
+enabled = false
+
+# Seed URLs for autonomous background crawling (empty = no autonomous crawling)
+# seeds = ["https://arxiv.org/abs/", "https://huggingface.co/blog"]
+
+# BFS depth: 0 = seed page only, 1 = seed + all linked pages
+depth = 1
+
+# Maximum pages to fetch per seed per run
+max_pages = 50
+
+# Minimum milliseconds between requests to the same domain
+rate_limit_ms = 1000
+
+# Respect robots.txt exclusions
+respect_robots = true
+
+# Generate vector embeddings for each page (requires [openai] backend to be configured)
+generate_embeddings = false
 "#.to_string()
 }
 

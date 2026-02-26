@@ -71,6 +71,9 @@ qrcode = "0.13"
 pqcrypto-dilithium = "0.5"
 pqcrypto-traits = "0.3"
 
+# Web crawler
+scraper = "0.19"
+
 # LLM Inference (llama.cpp bindings)
 # Note: llama-cpp-2 requires cmake and a C++ compiler
 llama-cpp-2 = { version = "0.1", optional = true }

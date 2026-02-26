@@ -4,47 +4,47 @@ import { createApiState, ApiState } from '../state';
 import { createInMemoryStores } from '../../persistence/inMemoryStores';
 import { ErrorCodes } from '../types';
 import { BlockType } from '../../types';
+import { makeTestNode, signWorkerRequest, TestNode } from './helpers';
 
 const ADMIN_KEY = 'test-admin-key';
 
 describe('/work endpoints', () => {
   let state: ApiState;
   let app: ReturnType<typeof createApp>;
-  let aliceKey: string;
+  let alice: TestNode;
 
   beforeEach(async () => {
     const stores = createInMemoryStores();
     state = createApiState(stores);
     app = createApp(state);
 
-    // Register alice
-    const response = await request(app)
+    alice = await makeTestNode();
+    await request(app)
       .post('/nodes/register')
-      .send({ accountId: 'alice' });
-    aliceKey = response.body.nodeKey;
+      .send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
   });
 
   describe('POST /work/request', () => {
     it('should reject request before day starts', async () => {
+      const auth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: aliceKey });
+        .send({ accountId: alice.accountId, ...auth });
 
       expect(response.status).toBe(409);
       expect(response.body.code).toBe(ErrorCodes.DAY_NOT_STARTED);
     });
 
     it('should return assignments after day starts', async () => {
-      // Start day
       await request(app)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
-      // Request work
+      const auth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: aliceKey });
+        .send({ accountId: alice.accountId, ...auth });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
@@ -53,29 +53,27 @@ describe('/work endpoints', () => {
     });
 
     it('should return ROSTER_LOCKED for late registrant', async () => {
-      // Start day without bob
       await request(app)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
-      // Register bob after day starts
-      const bobResponse = await request(app)
+      const bob = await makeTestNode();
+      await request(app)
         .post('/nodes/register')
-        .send({ accountId: 'bob' });
-      const bobKey = bobResponse.body.nodeKey;
+        .send({ accountId: bob.accountId, publicKey: bob.publicKeyHex });
 
-      // Bob requests work
+      const auth = await signWorkerRequest(bob.accountId, bob.secretKeyHex);
       const response = await request(app)
         .post('/work/request')
-        .send({ accountId: 'bob', nodeKey: bobKey });
+        .send({ accountId: bob.accountId, ...auth });
 
       expect(response.status).toBe(200);
       expect(response.body.assignments).toHaveLength(0);
       expect(response.body.reason).toBe('ROSTER_LOCKED');
     });
 
-    it('should reject request with invalid nodeKey', async () => {
+    it('should reject request with invalid signature', async () => {
       await request(app)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
@@ -83,10 +81,14 @@ describe('/work endpoints', () => {
 
       const response = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: 'wrong-key' });
+        .send({
+          accountId: alice.accountId,
+          timestamp: new Date().toISOString(),
+          signature: 'aa'.repeat(3309),
+        });
 
       expect(response.status).toBe(401);
-      expect(response.body.code).toBe(ErrorCodes.INVALID_NODE_KEY);
+      expect(response.body.code).toBe(ErrorCodes.INVALID_SIGNATURE);
     });
 
     it('should reject request for unknown node', async () => {
@@ -95,9 +97,11 @@ describe('/work endpoints', () => {
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
+      const unknown = await makeTestNode();
+      const auth = await signWorkerRequest(unknown.accountId, unknown.secretKeyHex);
       const response = await request(app)
         .post('/work/request')
-        .send({ accountId: 'unknown', nodeKey: 'any-key' });
+        .send({ accountId: unknown.accountId, ...auth });
 
       expect(response.status).toBe(404);
       expect(response.body.code).toBe(ErrorCodes.NODE_NOT_FOUND);
@@ -106,7 +110,6 @@ describe('/work endpoints', () => {
 
   describe('POST /work/submit', () => {
     beforeEach(async () => {
-      // Start day
       await request(app)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
@@ -114,44 +117,40 @@ describe('/work endpoints', () => {
     });
 
     it('should reject submission before day starts', async () => {
-      // Create new state without starting day
       const stores = createInMemoryStores();
       const freshState = createApiState(stores);
       const freshApp = createApp(freshState);
 
-      const regResponse = await request(freshApp)
+      const freshNode = await makeTestNode();
+      await request(freshApp)
         .post('/nodes/register')
-        .send({ accountId: 'alice' });
+        .send({ accountId: freshNode.accountId, publicKey: freshNode.publicKeyHex });
 
+      const auth = await signWorkerRequest(freshNode.accountId, freshNode.secretKeyHex);
       const response = await request(freshApp)
         .post('/work/submit')
-        .send({
-          accountId: 'alice',
-          nodeKey: regResponse.body.nodeKey,
-          submissions: [],
-        });
+        .send({ accountId: freshNode.accountId, ...auth, submissions: [] });
 
       expect(response.status).toBe(409);
       expect(response.body.code).toBe(ErrorCodes.DAY_NOT_STARTED);
     });
 
     it('should accept submission for assigned block', async () => {
-      // Get assignments
+      const workAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const workResponse = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: aliceKey });
+        .send({ accountId: alice.accountId, ...workAuth });
 
       const assignments = workResponse.body.assignments;
       expect(assignments.length).toBeGreaterThan(0);
-
       const blockId = assignments[0].blockId;
 
-      // Submit work
+      const submitAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response = await request(app)
         .post('/work/submit')
         .send({
-          accountId: 'alice',
-          nodeKey: aliceKey,
+          accountId: alice.accountId,
+          ...submitAuth,
           submissions: [
             {
               blockId,
@@ -171,11 +170,12 @@ describe('/work endpoints', () => {
     });
 
     it('should reject submission for unassigned block', async () => {
+      const auth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response = await request(app)
         .post('/work/submit')
         .send({
-          accountId: 'alice',
-          nodeKey: aliceKey,
+          accountId: alice.accountId,
+          ...auth,
           submissions: [
             {
               blockId: 'unassigned-block-id',
@@ -193,13 +193,12 @@ describe('/work endpoints', () => {
     });
 
     it('should return cached result for duplicate submission (idempotency)', async () => {
-      // Get assignments
+      const workAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const workResponse = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: aliceKey });
+        .send({ accountId: alice.accountId, ...workAuth });
 
       const blockId = workResponse.body.assignments[0].blockId;
-
       const submission = {
         blockId,
         blockType: BlockType.INFERENCE,
@@ -208,35 +207,35 @@ describe('/work endpoints', () => {
         validationPassed: true,
       };
 
-      // First submission
+      const auth1 = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response1 = await request(app)
         .post('/work/submit')
-        .send({ accountId: 'alice', nodeKey: aliceKey, submissions: [submission] });
+        .send({ accountId: alice.accountId, ...auth1, submissions: [submission] });
 
-      // Second submission (duplicate)
+      const auth2 = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response2 = await request(app)
         .post('/work/submit')
-        .send({ accountId: 'alice', nodeKey: aliceKey, submissions: [submission] });
+        .send({ accountId: alice.accountId, ...auth2, submissions: [submission] });
 
       expect(response1.body.results[0]).toEqual(response2.body.results[0]);
-
-      // Should only have 1 pending submission (not 2)
       expect(state.pendingSubmissions).toHaveLength(1);
     });
 
     it('should reject submission with wrong dayId', async () => {
+      const workAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const workResponse = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: aliceKey });
+        .send({ accountId: alice.accountId, ...workAuth });
 
       const blockId = workResponse.body.assignments[0].blockId;
 
+      const auth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response = await request(app)
         .post('/work/submit')
         .send({
-          accountId: 'alice',
-          nodeKey: aliceKey,
-          dayId: '2026-01-29', // Wrong day
+          accountId: alice.accountId,
+          ...auth,
+          dayId: '2026-01-29',
           submissions: [
             {
               blockId,
@@ -252,24 +251,25 @@ describe('/work endpoints', () => {
       expect(response.body.code).toBe(ErrorCodes.DAY_MISMATCH);
     });
 
-    it('should reject submission with invalid nodeKey', async () => {
+    it('should reject submission with invalid signature', async () => {
       const response = await request(app)
         .post('/work/submit')
         .send({
-          accountId: 'alice',
-          nodeKey: 'wrong-key',
+          accountId: alice.accountId,
+          timestamp: new Date().toISOString(),
+          signature: 'aa'.repeat(3309),
           submissions: [],
         });
 
       expect(response.status).toBe(401);
-      expect(response.body.code).toBe(ErrorCodes.INVALID_NODE_KEY);
+      expect(response.body.code).toBe(ErrorCodes.INVALID_SIGNATURE);
     });
 
     it('should handle multiple submissions in one request', async () => {
-      // Get assignments
+      const workAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const workResponse = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: aliceKey });
+        .send({ accountId: alice.accountId, ...workAuth });
 
       const assignments = workResponse.body.assignments;
       expect(assignments.length).toBeGreaterThanOrEqual(2);
@@ -282,9 +282,10 @@ describe('/work endpoints', () => {
         validationPassed: true,
       }));
 
+      const auth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response = await request(app)
         .post('/work/submit')
-        .send({ accountId: 'alice', nodeKey: aliceKey, submissions });
+        .send({ accountId: alice.accountId, ...auth, submissions });
 
       expect(response.status).toBe(200);
       expect(response.body.results).toHaveLength(2);

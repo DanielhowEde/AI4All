@@ -2,7 +2,7 @@ import * as crypto from 'crypto';
 import { NetworkState, BlockSubmission, createEmptyNetworkState } from '../services/serviceTypes';
 import { BlockAssignment } from '../types';
 import { IEventStore, IStateStore, IAssignmentStore, ISubmissionStore } from '../persistence/interfaces';
-import { DayPhase, SubmissionResultItem, PairingSession, LinkedDevice, PeerInfo, WorkGroupInfo, TaskRecord } from './types';
+import { DayPhase, SubmissionResultItem, PairingSession, LinkedDevice, PeerInfo, WorkGroupInfo, TaskRecord, CrawledPageData } from './types';
 import type { IOperationalStore, IBalanceLedger } from '../persistence/interfaces';
 
 /**
@@ -34,8 +34,8 @@ export interface ApiState {
   processedSubmissions: Map<string, SubmissionResultItem>;
   pendingSubmissions: BlockSubmission[];
 
-  // Minimal auth: accountId → nodeKey
-  nodeKeys: Map<string, string>;
+  // Identity: accountId → hex ML-DSA-65 public key (1952 bytes = 3904 hex chars)
+  publicKeys: Map<string, string>;
 
   // Device pairing
   pairings: Map<string, PairingSession>;          // pairingId → session
@@ -60,6 +60,9 @@ export interface ApiState {
 
   // Optional balance ledger (event-derived)
   balanceLedger?: IBalanceLedger;
+
+  // Crawled page data (from autonomous worker crawlers)
+  crawledData: CrawledPageData[];
 }
 
 /**
@@ -82,7 +85,7 @@ export function createApiState(stores: {
     currentCanaryBlockIds: new Set(),
     processedSubmissions: new Map(),
     pendingSubmissions: [],
-    nodeKeys: new Map(),
+    publicKeys: new Map(),
     peers: new Map(),
     workGroups: new Map(),
     pairings: new Map(),
@@ -93,6 +96,7 @@ export function createApiState(stores: {
     clientTasks: new Map(),
     taskQueue: [],
     taskSequence: 0,
+    crawledData: [],
   };
 }
 

@@ -53,8 +53,8 @@ export interface DayLifecycleData {
 }
 
 export interface IOperationalStore {
-  saveNodeKeys(nodeKeys: Map<string, string>): void;
-  loadNodeKeys(): Map<string, string>;
+  savePublicKeys(publicKeys: Map<string, string>): void;
+  loadPublicKeys(): Map<string, string>;
 
   saveDevices(
     devices: Map<string, unknown>,

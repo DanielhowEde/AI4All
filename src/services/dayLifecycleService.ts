@@ -135,7 +135,7 @@ export async function finalizeCurrent(state: ApiState): Promise<FinalizeResult> 
   // Clear day lifecycle in kv store
   if (state.operationalStore) {
     state.operationalStore.clearDayPhase();
-    state.operationalStore.saveNodeKeys(state.nodeKeys);
+    state.operationalStore.savePublicKeys(state.publicKeys);
   }
 
   return {

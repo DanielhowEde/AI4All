@@ -3,6 +3,7 @@ import { createApp } from '../app';
 import { createApiState, computeRosterHash, computeDaySeed } from '../state';
 import { createInMemoryStores } from '../../persistence/inMemoryStores';
 import { BlockType } from '../../types';
+import { makeTestNode, signWorkerRequest, TestNode } from './helpers';
 
 const ADMIN_KEY = 'test-admin-key';
 
@@ -13,13 +14,14 @@ describe('Integration tests', () => {
       const state = createApiState(stores);
       const app = createApp(state);
 
+      const alice = await makeTestNode();
+
       // 1. Register node
       const registerResponse = await request(app)
         .post('/nodes/register')
-        .send({ accountId: 'alice' });
+        .send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
 
       expect(registerResponse.status).toBe(201);
-      const nodeKey = registerResponse.body.nodeKey;
 
       // 2. Admin starts day
       const startResponse = await request(app)
@@ -31,20 +33,22 @@ describe('Integration tests', () => {
       expect(startResponse.body.activeContributors).toBe(1);
 
       // 3. Node requests work
+      const workAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const workResponse = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey });
+        .send({ accountId: alice.accountId, ...workAuth });
 
       expect(workResponse.status).toBe(200);
       expect(workResponse.body.assignments.length).toBeGreaterThan(0);
 
       // 4. Node submits work
       const blockId = workResponse.body.assignments[0].blockId;
+      const submitAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const submitResponse = await request(app)
         .post('/work/submit')
         .send({
-          accountId: 'alice',
-          nodeKey,
+          accountId: alice.accountId,
+          ...submitAuth,
           submissions: [
             {
               blockId,
@@ -74,7 +78,7 @@ describe('Integration tests', () => {
 
       expect(rewardsResponse.status).toBe(200);
       expect(rewardsResponse.body.distribution.rewards.length).toBe(1);
-      expect(rewardsResponse.body.distribution.rewards[0].accountId).toBe('alice');
+      expect(rewardsResponse.body.distribution.rewards[0].accountId).toBe(alice.accountId);
       expect(rewardsResponse.body.distribution.rewards[0].totalReward).toBeGreaterThan(0);
     });
 
@@ -83,22 +87,14 @@ describe('Integration tests', () => {
       const state = createApiState(stores);
       const app = createApp(state);
 
-      // Register multiple nodes
-      const aliceResponse = await request(app)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
-      const bobResponse = await request(app)
-        .post('/nodes/register')
-        .send({ accountId: 'bob' });
-      const charlieResponse = await request(app)
-        .post('/nodes/register')
-        .send({ accountId: 'charlie' });
+      const alice = await makeTestNode();
+      const bob = await makeTestNode();
+      const charlie = await makeTestNode();
 
-      const aliceKey = aliceResponse.body.nodeKey;
-      const bobKey = bobResponse.body.nodeKey;
-      const charlieKey = charlieResponse.body.nodeKey;
+      await request(app).post('/nodes/register').send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
+      await request(app).post('/nodes/register').send({ accountId: bob.accountId, publicKey: bob.publicKeyHex });
+      await request(app).post('/nodes/register').send({ accountId: charlie.accountId, publicKey: charlie.publicKeyHex });
 
-      // Start day
       const startResponse = await request(app)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
@@ -106,38 +102,33 @@ describe('Integration tests', () => {
 
       expect(startResponse.body.activeContributors).toBe(3);
 
-      // Each node requests work
-      const aliceWork = await request(app)
-        .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: aliceKey });
-      const bobWork = await request(app)
-        .post('/work/request')
-        .send({ accountId: 'bob', nodeKey: bobKey });
-      const charlieWork = await request(app)
-        .post('/work/request')
-        .send({ accountId: 'charlie', nodeKey: charlieKey });
+      const aliceAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
+      const bobAuth = await signWorkerRequest(bob.accountId, bob.secretKeyHex);
+      const charlieAuth = await signWorkerRequest(charlie.accountId, charlie.secretKeyHex);
 
-      // All should get assignments (total 440 batches split among 3)
+      const aliceWork = await request(app).post('/work/request').send({ accountId: alice.accountId, ...aliceAuth });
+      const bobWork = await request(app).post('/work/request').send({ accountId: bob.accountId, ...bobAuth });
+      const charlieWork = await request(app).post('/work/request').send({ accountId: charlie.accountId, ...charlieAuth });
+
       const totalAssignments =
         aliceWork.body.assignments.length +
         bobWork.body.assignments.length +
         charlieWork.body.assignments.length;
 
-      // Expect roughly 2200 blocks total
       expect(totalAssignments).toBeGreaterThan(100);
 
-      // Each node submits at least one block to become "active" for rewards
-      for (const [accountId, nodeKey, workResp] of [
-        ['alice', aliceKey, aliceWork],
-        ['bob', bobKey, bobWork],
-        ['charlie', charlieKey, charlieWork],
-      ] as const) {
-        const blockId = (workResp as { body: { assignments: Array<{ blockId: string }> } }).body.assignments[0].blockId;
+      for (const [node, workResp] of [
+        [alice, aliceWork],
+        [bob, bobWork],
+        [charlie, charlieWork],
+      ] as [TestNode, typeof aliceWork][]) {
+        const blockId = workResp.body.assignments[0].blockId;
+        const auth = await signWorkerRequest(node.accountId, node.secretKeyHex);
         await request(app)
           .post('/work/submit')
           .send({
-            accountId,
-            nodeKey,
+            accountId: node.accountId,
+            ...auth,
             submissions: [
               {
                 blockId,
@@ -150,12 +141,10 @@ describe('Integration tests', () => {
           });
       }
 
-      // Finalize
       await request(app)
         .post('/admin/day/finalize')
         .set('X-Admin-Key', ADMIN_KEY);
 
-      // Query rewards
       const rewardsResponse = await request(app)
         .get('/rewards/day')
         .query({ dayId: '2026-01-28' });
@@ -166,40 +155,37 @@ describe('Integration tests', () => {
 
   describe('Determinism', () => {
     it('should produce identical assignments for same dayId + roster', async () => {
+      // Create a keypair once — both runs use the same accountId to get identical rosters
+      const sharedNode = await makeTestNode();
+
       // Run 1
       const stores1 = createInMemoryStores();
       const state1 = createApiState(stores1);
       const app1 = createApp(state1);
 
-      await request(app1)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
+      await request(app1).post('/nodes/register').send({ accountId: sharedNode.accountId, publicKey: sharedNode.publicKeyHex });
 
       const start1 = await request(app1)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
-      // Run 2 (fresh state)
+      // Run 2 (fresh state, same node)
       const stores2 = createInMemoryStores();
       const state2 = createApiState(stores2);
       const app2 = createApp(state2);
 
-      await request(app2)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
+      await request(app2).post('/nodes/register').send({ accountId: sharedNode.accountId, publicKey: sharedNode.publicKeyHex });
 
       const start2 = await request(app2)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
-      // Compare deterministic outputs
       expect(start1.body.seed).toBe(start2.body.seed);
       expect(start1.body.rosterHash).toBe(start2.body.rosterHash);
       expect(start1.body.totalBlocks).toBe(start2.body.totalBlocks);
 
-      // Compare actual assignments (excluding timestamps which are not deterministic)
       const normalize = (assignments: typeof state1.currentDayAssignments) =>
         assignments.map(a => ({
           contributorId: a.contributorId,
@@ -210,14 +196,15 @@ describe('Integration tests', () => {
     });
 
     it('should produce different assignments for different roster', async () => {
+      const alice = await makeTestNode();
+      const bob = await makeTestNode();
+
       // Run 1: alice only
       const stores1 = createInMemoryStores();
       const state1 = createApiState(stores1);
       const app1 = createApp(state1);
 
-      await request(app1)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
+      await request(app1).post('/nodes/register').send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
 
       const start1 = await request(app1)
         .post('/admin/day/start')
@@ -229,32 +216,27 @@ describe('Integration tests', () => {
       const state2 = createApiState(stores2);
       const app2 = createApp(state2);
 
-      await request(app2)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
-      await request(app2)
-        .post('/nodes/register')
-        .send({ accountId: 'bob' });
+      await request(app2).post('/nodes/register').send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
+      await request(app2).post('/nodes/register').send({ accountId: bob.accountId, publicKey: bob.publicKeyHex });
 
       const start2 = await request(app2)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
-      // Roster hash and seed should differ
       expect(start1.body.rosterHash).not.toBe(start2.body.rosterHash);
       expect(start1.body.seed).not.toBe(start2.body.seed);
     });
 
     it('should produce different assignments for different dayId', async () => {
+      const sharedNode = await makeTestNode();
+
       // Run 1: day 2026-01-28
       const stores1 = createInMemoryStores();
       const state1 = createApiState(stores1);
       const app1 = createApp(state1);
 
-      await request(app1)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
+      await request(app1).post('/nodes/register').send({ accountId: sharedNode.accountId, publicKey: sharedNode.publicKeyHex });
 
       const start1 = await request(app1)
         .post('/admin/day/start')
@@ -266,29 +248,25 @@ describe('Integration tests', () => {
       const state2 = createApiState(stores2);
       const app2 = createApp(state2);
 
-      await request(app2)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
+      await request(app2).post('/nodes/register').send({ accountId: sharedNode.accountId, publicKey: sharedNode.publicKeyHex });
 
       const start2 = await request(app2)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-29' });
 
-      // Same roster, different day → different seed
       expect(start1.body.rosterHash).toBe(start2.body.rosterHash); // Same roster
       expect(start1.body.seed).not.toBe(start2.body.seed); // Different seed
     });
 
     it('should verify rosterHash computation', () => {
-      // Test roster hash is deterministic and only depends on sorted accountIds
       const hash1 = computeRosterHash(['alice', 'bob', 'charlie']);
-      const hash2 = computeRosterHash(['charlie', 'alice', 'bob']); // Different order
-      const hash3 = computeRosterHash(['alice', 'bob']); // Different roster
+      const hash2 = computeRosterHash(['charlie', 'alice', 'bob']);
+      const hash3 = computeRosterHash(['alice', 'bob']);
 
-      expect(hash1).toBe(hash2); // Same accounts → same hash
-      expect(hash1).not.toBe(hash3); // Different accounts → different hash
-      expect(hash1).toHaveLength(64); // SHA-256 hex
+      expect(hash1).toBe(hash2);
+      expect(hash1).not.toBe(hash3);
+      expect(hash1).toHaveLength(64);
     });
 
     it('should verify seed computation', () => {
@@ -298,8 +276,8 @@ describe('Integration tests', () => {
       const seed2 = computeDaySeed('2026-01-28', rosterHash);
       const seed3 = computeDaySeed('2026-01-29', rosterHash);
 
-      expect(seed1).toBe(seed2); // Same inputs → same seed
-      expect(seed1).not.toBe(seed3); // Different day → different seed
+      expect(seed1).toBe(seed2);
+      expect(seed1).not.toBe(seed3);
       expect(typeof seed1).toBe('number');
     });
   });
@@ -310,22 +288,18 @@ describe('Integration tests', () => {
       const state = createApiState(stores);
       const app = createApp(state);
 
-      // Register and get nodeKey
-      const registerResponse = await request(app)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
-      const nodeKey = registerResponse.body.nodeKey;
+      const alice = await makeTestNode();
+      await request(app).post('/nodes/register').send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
 
-      // Start day
       await request(app)
         .post('/admin/day/start')
         .set('X-Admin-Key', ADMIN_KEY)
         .send({ dayId: '2026-01-28' });
 
-      // Get assignment
+      const workAuth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const workResponse = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey });
+        .send({ accountId: alice.accountId, ...workAuth });
       const blockId = workResponse.body.assignments[0].blockId;
 
       const submission = {
@@ -336,20 +310,17 @@ describe('Integration tests', () => {
         validationPassed: true,
       };
 
-      // Submit 3 times
       const results = [];
       for (let i = 0; i < 3; i++) {
+        const auth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
         const response = await request(app)
           .post('/work/submit')
-          .send({ accountId: 'alice', nodeKey, submissions: [submission] });
+          .send({ accountId: alice.accountId, ...auth, submissions: [submission] });
         results.push(response.body.results[0]);
       }
 
-      // All results should be identical
       expect(results[0]).toEqual(results[1]);
       expect(results[1]).toEqual(results[2]);
-
-      // Only 1 pending submission
       expect(state.pendingSubmissions).toHaveLength(1);
     });
   });
@@ -360,13 +331,13 @@ describe('Integration tests', () => {
       const state = createApiState(stores);
       const app = createApp(state);
 
-      const registerResponse = await request(app)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
+      const alice = await makeTestNode();
+      await request(app).post('/nodes/register').send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
 
+      const auth = await signWorkerRequest(alice.accountId, alice.secretKeyHex);
       const response = await request(app)
         .post('/work/request')
-        .send({ accountId: 'alice', nodeKey: registerResponse.body.nodeKey });
+        .send({ accountId: alice.accountId, ...auth });
 
       expect(response.status).toBe(409);
     });
@@ -376,9 +347,8 @@ describe('Integration tests', () => {
       const state = createApiState(stores);
       const app = createApp(state);
 
-      await request(app)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
+      const alice = await makeTestNode();
+      await request(app).post('/nodes/register').send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
 
       await request(app)
         .post('/admin/day/start')
@@ -398,9 +368,8 @@ describe('Integration tests', () => {
       const state = createApiState(stores);
       const app = createApp(state);
 
-      await request(app)
-        .post('/nodes/register')
-        .send({ accountId: 'alice' });
+      const alice = await makeTestNode();
+      await request(app).post('/nodes/register').send({ accountId: alice.accountId, publicKey: alice.publicKeyHex });
 
       const response = await request(app)
         .post('/admin/day/finalize')

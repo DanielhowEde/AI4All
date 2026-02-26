@@ -18,6 +18,7 @@ import { DEFAULT_REWARD_CONFIG } from '../../types';
 import { BlockSubmission } from '../../services/serviceTypes';
 import { processSubmission } from '../../services/submissionService';
 import { verify } from '../../crypto/signing';
+import { verifyWorkerAuth } from '../auth';
 
 /** Convert hex string to Uint8Array */
 function hexToBytes(hex: string): Uint8Array {
@@ -26,39 +27,6 @@ function hexToBytes(hex: string): Uint8Array {
     bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
   }
   return bytes;
-}
-
-/**
- * Validate nodeKey for a given accountId (legacy auth path)
- */
-function validateNodeKey(
-  state: ApiState,
-  accountId: string,
-  nodeKey: string,
-  res: Response
-): boolean {
-  // Check if node exists
-  if (!state.networkState.contributors.has(accountId)) {
-    res.status(404).json({
-      success: false,
-      error: `Node not found: ${accountId}`,
-      code: ErrorCodes.NODE_NOT_FOUND,
-    });
-    return false;
-  }
-
-  // Validate nodeKey
-  const storedKey = state.nodeKeys.get(accountId);
-  if (storedKey !== nodeKey) {
-    res.status(401).json({
-      success: false,
-      error: 'Invalid nodeKey',
-      code: ErrorCodes.INVALID_NODE_KEY,
-    });
-    return false;
-  }
-
-  return true;
 }
 
 /**
@@ -146,19 +114,13 @@ export function createWorkRouter(state: ApiState): Router {
 
     const accountId = body.accountId.trim();
 
-    // Dual auth: device signature takes priority, falls back to nodeKey
+    // Dual auth: device signature takes priority, falls back to worker signature
     if (body.deviceId && body.deviceSignature) {
       const ok = await validateDeviceAuth(state, body.deviceId, body.deviceSignature, accountId, res);
       if (!ok) return;
-    } else if (body.nodeKey && typeof body.nodeKey === 'string') {
-      if (!validateNodeKey(state, accountId, body.nodeKey, res)) return;
     } else {
-      res.status(401).json({
-        success: false,
-        error: 'Missing authentication: provide nodeKey or deviceId+deviceSignature',
-        code: ErrorCodes.INVALID_NODE_KEY,
-      });
-      return;
+      const ok = await verifyWorkerAuth(state.publicKeys, accountId, body.timestamp, body.signature, res);
+      if (!ok) return;
     }
 
     // Check if day is active
@@ -224,19 +186,13 @@ export function createWorkRouter(state: ApiState): Router {
 
     const accountId = body.accountId.trim();
 
-    // Dual auth: device signature takes priority, falls back to nodeKey
+    // Dual auth: device signature takes priority, falls back to worker signature
     if (body.deviceId && body.deviceSignature) {
       const ok = await validateDeviceAuth(state, body.deviceId, body.deviceSignature, accountId, res);
       if (!ok) return;
-    } else if (body.nodeKey && typeof body.nodeKey === 'string') {
-      if (!validateNodeKey(state, accountId, body.nodeKey, res)) return;
     } else {
-      res.status(401).json({
-        success: false,
-        error: 'Missing authentication: provide nodeKey or deviceId+deviceSignature',
-        code: ErrorCodes.INVALID_NODE_KEY,
-      });
-      return;
+      const ok = await verifyWorkerAuth(state.publicKeys, accountId, body.timestamp, body.signature, res);
+      if (!ok) return;
     }
 
     // Check if day is active

@@ -9,6 +9,7 @@ import { createAccountsRouter } from './routes/accounts';
 import { createPeersRouter } from './routes/peers';
 import { createGroupsRouter } from './routes/groups';
 import { createTasksRouter } from './routes/tasks';
+import { createDataRouter } from './routes/data';
 import { ErrorCodes } from './types';
 
 /**
@@ -46,6 +47,7 @@ export function createApp(state: ApiState): Express {
   app.use('/peers', createPeersRouter(state));
   app.use('/groups', createGroupsRouter(state));
   app.use('/tasks', createTasksRouter(state));
+  app.use('/data', createDataRouter(state));
 
   // Global error handler
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

@@ -294,7 +294,7 @@ describe('Milestone 2: Base Participation Pool', () => {
       expect(rewards[0].luckPoolReward).toBe(0);
       expect(rewards[0].totalReward).toBe(3_420);
       expect(rewards[0].reason).toContain('Base pool');
-      expect(rewards[0].reason).toContain('3420.00 tokens');
+      expect(rewards[0].reason).toContain('3420.000000000 tokens');
 
       expect(rewards[1].accountId).toBe('bob');
       expect(rewards[1].basePoolReward).toBe(3_420);
@@ -629,6 +629,9 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
     minReliability: 0.0,
   };
 
+  // Fixed reference time matching the hardcoded block timestamps, so tests are date-independent
+  const TEST_NOW = new Date('2026-01-27T12:00:00Z');
+
   // Helper: Create contributor with specific points
   const createContributor = (
     accountId: string,
@@ -658,7 +661,7 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
   describe('calculatePerformanceWeight', () => {
     it('should calculate sqrt of total compute points', () => {
       const contributor = createContributor('alice', 100);
-      const weight = calculatePerformanceWeight(contributor, config);
+      const weight = calculatePerformanceWeight(contributor, config, TEST_NOW);
       expect(weight).toBeCloseTo(10, 2); // sqrt(100) = 10
     });
 
@@ -667,9 +670,9 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
       const bob400 = createContributor('bob', 400);
       const charlie900 = createContributor('charlie', 900);
 
-      const weightAlice = calculatePerformanceWeight(alice100, config);
-      const weightBob = calculatePerformanceWeight(bob400, config);
-      const weightCharlie = calculatePerformanceWeight(charlie900, config);
+      const weightAlice = calculatePerformanceWeight(alice100, config, TEST_NOW);
+      const weightBob = calculatePerformanceWeight(bob400, config, TEST_NOW);
+      const weightCharlie = calculatePerformanceWeight(charlie900, config, TEST_NOW);
 
       expect(weightAlice).toBeCloseTo(10, 2); // sqrt(100) = 10
       expect(weightBob).toBeCloseTo(20, 2); // sqrt(400) = 20 (4x points = 2x weight)
@@ -688,7 +691,7 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
 
     it('should handle fractional points', () => {
       const contributor = createContributor('alice', 50);
-      const weight = calculatePerformanceWeight(contributor, config);
+      const weight = calculatePerformanceWeight(contributor, config, TEST_NOW);
       expect(weight).toBeCloseTo(Math.sqrt(50), 2);
     });
   });
@@ -702,7 +705,7 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
       ];
 
       const performancePoolAmount = 17_600; // 80% of 22,000
-      const rewards = distributePerformancePool(contributors, performancePoolAmount, config);
+      const rewards = distributePerformancePool(contributors, performancePoolAmount, config, TEST_NOW);
 
       // Total weight = 30 + 20 + 10 = 60
       // Alice: 30/60 = 50% → 8,800 tokens
@@ -768,7 +771,7 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
       ];
 
       const performancePoolAmount = 1_000_000;
-      const rewards = distributePerformancePool(contributors, performancePoolAmount, config);
+      const rewards = distributePerformancePool(contributors, performancePoolAmount, config, TEST_NOW);
 
       // Total weight = 1500
       // Alice: 1000/1500 = 66.67%
@@ -824,7 +827,7 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
         createContributor('bob', 100),
       ];
 
-      const rewards = calculateDailyRewards(contributors, config);
+      const rewards = calculateDailyRewards(contributors, config, TEST_NOW);
 
       // Base pool: 22,000 × 0.20 = 4,400 / 2 = 2,200 each
       // Performance pool: 22,000 × 0.80 = 17,600
@@ -853,7 +856,7 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
         createContributor('low_performer', 100),
       ];
 
-      const rewards = calculateDailyRewards(contributors, config);
+      const rewards = calculateDailyRewards(contributors, config, TEST_NOW);
 
       const highPerformer = rewards.find(r => r.accountId === 'high_performer')!;
       const lowPerformer = rewards.find(r => r.accountId === 'low_performer')!;
@@ -1205,7 +1208,7 @@ describe('Milestone 3: Performance Pool with sqrt Diminishing Returns', () => {
         },
       ];
 
-      const rewards = calculateDailyRewards(contributors, config);
+      const rewards = calculateDailyRewards(contributors, config, TEST_NOW);
 
       // Bob has 0 reward points (all canaries), so 0 performance weight
       // But still gets base pool share

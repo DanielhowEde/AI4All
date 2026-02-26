@@ -8,6 +8,7 @@ mod backend;
 mod cli;
 mod config;
 mod coordinator;
+mod crawler;
 mod error;
 mod executor;
 #[cfg(feature = "gpu")]
@@ -290,6 +291,15 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
         }
     }
 
+    // Register Crawler backend if web crawling is enabled
+    if config.crawler.enabled {
+        use crate::backend::CrawlerBackend;
+        let crawler_backend = CrawlerBackend::new(&config.crawler, &config.openai);
+        let reg = registry.read();
+        reg.register_boxed(BackendType::Crawler, Box::new(crawler_backend));
+        info!("Crawler backend registered");
+    }
+
     // Determine worker capabilities from registered backends
     let capabilities = build_worker_capabilities(&registry, &config);
     info!(
@@ -331,6 +341,12 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
 
     let worker_name = config.worker.name.clone()
         .unwrap_or_else(|| format!("AI4All Worker ({})", sys_info.hostname));
+
+    // Collect task type strings before capabilities is moved into CoordinatorClient
+    let supported_task_strings: Vec<String> = capabilities.supported_tasks
+        .iter()
+        .map(|t| t.to_string())
+        .collect();
 
     // Initialize peer-to-peer mesh networking
     let peer_registry = Arc::new(PeerRegistry::new());
@@ -409,60 +425,96 @@ async fn async_worker_main(config: WorkerConfig) -> Result<()> {
     // Track task IDs received via HTTP polling (vs WebSocket)
     let mut http_polled_tasks: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    // Self-register as a peer if account_id and node_key are configured.
+    // Self-register as a peer if account_id and secret_key are configured.
     // This makes the worker visible for HTTP task polling.
     let mut coordinator_worker_id = worker_id.clone();
-    if let (Some(account_id), Some(node_key)) = (&config.worker.account_id, &config.worker.node_key) {
+    if let (Some(account_id), Some(secret_key)) = (&config.worker.account_id, &config.worker.secret_key) {
         let listen_addr = peer_mesh.listen_addr()
             .map(|a| a.to_string())
             .unwrap_or_else(|| format!("127.0.0.1:{}", config.peer.listen_port));
 
-        let register_body = serde_json::json!({
-            "accountId": account_id,
-            "nodeKey": node_key,
-            "listenAddr": listen_addr,
-            "capabilities": {
-                "supportedTasks": ["text_completion", "embeddings"],
-                "maxConcurrentTasks": 4,
-                "availableMemoryMb": sys_info.total_memory_mb,
-                "gpuAvailable": false,
-                "maxContextLength": 4096,
-                "workerVersion": env!("CARGO_PKG_VERSION"),
-            }
-        });
+        // Sign canonical auth message: "AI4ALL:v1:{accountId}:{timestamp}"
+        use pqcrypto_dilithium::dilithium3;
+        use pqcrypto_traits::sign::{DetachedSignature, SecretKey as PqSecretKey};
+        let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        let message = format!("AI4ALL:v1:{}:{}", account_id, timestamp);
+        let maybe_sig_hex: Option<String> = (|| {
+            let sk_bytes = hex::decode(secret_key).ok()?;
+            let sk = dilithium3::SecretKey::from_bytes(&sk_bytes).ok()?;
+            let sig = dilithium3::detached_sign(message.as_bytes(), &sk);
+            Some(hex::encode(sig.as_bytes()))
+        })();
 
-        let url = format!("{}/peers/register", coordinator_http_base);
-        match http_client.post(&url).json(&register_body).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                if let Ok(body) = resp.json::<serde_json::Value>().await {
-                    if let Some(wid) = body["workerId"].as_str() {
-                        coordinator_worker_id = wid.to_string();
-                        info!(
-                            worker_id = %coordinator_worker_id,
-                            account_id = %account_id,
-                            "Registered as peer with coordinator"
+        match maybe_sig_hex {
+            None => {
+                warn!("Failed to sign peer registration — check secret_key in config");
+            }
+            Some(sig_hex) => {
+                let register_body = serde_json::json!({
+                    "accountId": account_id,
+                    "timestamp": timestamp,
+                    "signature": sig_hex,
+                    "listenAddr": listen_addr,
+                    "capabilities": {
+                        "supportedTasks": supported_task_strings,
+                        "maxConcurrentTasks": 4,
+                        "availableMemoryMb": sys_info.total_memory_mb,
+                        "gpuAvailable": false,
+                        "maxContextLength": 4096,
+                        "workerVersion": env!("CARGO_PKG_VERSION"),
+                    }
+                });
+
+                let url = format!("{}/peers/register", coordinator_http_base);
+                match http_client.post(&url).json(&register_body).send().await {
+                    Ok(resp) if resp.status().is_success() => {
+                        if let Ok(body) = resp.json::<serde_json::Value>().await {
+                            if let Some(wid) = body["workerId"].as_str() {
+                                coordinator_worker_id = wid.to_string();
+                                info!(
+                                    worker_id = %coordinator_worker_id,
+                                    account_id = %account_id,
+                                    "Registered as peer with coordinator"
+                                );
+                            }
+                        }
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_default();
+                        warn!(
+                            status = %status,
+                            body = %text,
+                            "Peer registration failed (task polling will not work)"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "Could not reach coordinator for peer registration"
                         );
                     }
                 }
             }
-            Ok(resp) => {
-                let status = resp.status();
-                let text = resp.text().await.unwrap_or_default();
-                warn!(
-                    status = %status,
-                    body = %text,
-                    "Peer registration failed (task polling will not work)"
-                );
-            }
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    "Could not reach coordinator for peer registration"
-                );
-            }
         }
     } else {
-        info!("No account_id/node_key configured — skipping peer registration (task polling requires registration)");
+        info!("No account_id/secret_key configured — skipping peer registration (task polling requires registration)");
+    }
+
+    // Spawn background crawler service if seeds are configured
+    if config.crawler.enabled && !config.crawler.seeds.is_empty() {
+        if let (Some(account_id), Some(secret_key)) = (&config.worker.account_id, &config.worker.secret_key) {
+            use crate::crawler::CrawlerService;
+            let svc = CrawlerService::new(config.crawler.clone(), config.openai.clone());
+            svc.start(
+                coordinator_http_base.clone(),
+                account_id.clone(),
+                secret_key.clone(),
+            );
+            info!(seeds = config.crawler.seeds.len(), "Background crawler started");
+        } else {
+            warn!("Crawler enabled with seeds but no account_id/secret_key — background crawler disabled");
+        }
     }
 
     info!(

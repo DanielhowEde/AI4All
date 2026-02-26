@@ -129,7 +129,7 @@ export function calculateBasePoolRewards(
       performancePoolReward: 0, // Will be calculated in next milestone
       luckPoolReward: 0, // Will be calculated in next milestone
       totalReward: baseReward,
-      reason: `Base pool: ${baseReward.toFixed(2)} tokens (equal share among ${activeContributors.length} active contributors)`,
+      reason: `Base pool: ${baseReward.toFixed(9)} tokens (equal share among ${activeContributors.length} active contributors)`,
     });
   }
 
@@ -286,7 +286,7 @@ export function calculateDailyRewards(
       performancePoolReward: performanceReward,
       luckPoolReward: 0, // Not yet implemented
       totalReward,
-      reason: `Base: ${baseReward.toFixed(2)} (equal share) + Performance: ${performanceReward.toFixed(2)} (${rewardPoints.toFixed(0)} points → ${sqrtWeight.toFixed(2)} weight) = ${totalReward.toFixed(2)} tokens`,
+      reason: `Base: ${baseReward.toFixed(9)} (equal share) + Performance: ${performanceReward.toFixed(9)} (${rewardPoints.toFixed(0)} points → ${sqrtWeight.toFixed(2)} weight) = ${totalReward.toFixed(9)} tokens`,
     });
   }
 

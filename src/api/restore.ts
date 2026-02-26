@@ -31,8 +31,8 @@ export async function restoreApiState(fileStores: FileStores): Promise<ApiState>
   state.operationalStore = fileStores.operational;
   state.balanceLedger = fileStores.balance;
 
-  // 3. Restore nodeKeys
-  state.nodeKeys = fileStores.operational.loadNodeKeys();
+  // 3. Restore publicKeys
+  state.publicKeys = fileStores.operational.loadPublicKeys();
 
   // 4. Restore devices
   const { devices, accountDevices } = fileStores.operational.loadDevices();

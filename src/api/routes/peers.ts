@@ -8,6 +8,7 @@ import {
   PeerInfo,
   ErrorCodes,
 } from '../types';
+import { verifyWorkerAuth } from '../auth';
 
 /**
  * Create router for peer discovery endpoints
@@ -20,7 +21,7 @@ export function createPeersRouter(state: ApiState): Router {
    * Worker announces its P2P listen address and capabilities.
    * Returns a workerId for use in P2P communications.
    */
-  router.post('/register', (req: Request, res: Response) => {
+  router.post('/register', async (req: Request, res: Response) => {
     const body = req.body as PeerRegisterRequest;
 
     if (!body.accountId || typeof body.accountId !== 'string') {
@@ -28,15 +29,6 @@ export function createPeersRouter(state: ApiState): Router {
         success: false,
         error: 'Missing accountId',
         code: ErrorCodes.MISSING_ACCOUNT_ID,
-      });
-      return;
-    }
-
-    if (!body.nodeKey || typeof body.nodeKey !== 'string') {
-      res.status(401).json({
-        success: false,
-        error: 'Missing nodeKey',
-        code: ErrorCodes.INVALID_NODE_KEY,
       });
       return;
     }
@@ -52,16 +44,15 @@ export function createPeersRouter(state: ApiState): Router {
 
     const accountId = body.accountId.trim();
 
-    // Validate nodeKey
-    const storedKey = state.nodeKeys.get(accountId);
-    if (storedKey !== body.nodeKey) {
-      res.status(401).json({
-        success: false,
-        error: 'Invalid nodeKey',
-        code: ErrorCodes.INVALID_NODE_KEY,
-      });
-      return;
-    }
+    // Verify ML-DSA-65 signature
+    const ok = await verifyWorkerAuth(
+      state.publicKeys,
+      accountId,
+      body.timestamp,
+      body.signature,
+      res,
+    );
+    if (!ok) return;
 
     // Generate deterministic workerId from accountId
     const workerId = `worker-${crypto.createHash('sha256').update(accountId).digest('hex').substring(0, 8)}`;
